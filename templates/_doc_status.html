@@ -1,0 +1,103 @@
+{# Renders doc status badges for one device. Polls while fetch is running. #}
+{% set is_fetching = device.get('_fetching', False) %}
+{% set doc_label = {'manual': 'M', 'quickstart': 'QS', 'datasheet': 'DS'} %}
+<div id="doc-status-{{ device.id }}"
+  {% if is_fetching %}
+  hx-get="/devices/{{ device.id }}/doc-status"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  {% endif %}
+  class="d-flex flex-wrap gap-1 align-items-center">
+
+  {% for doc in (device.get('docs') or []) %}
+    {% set st = doc.get('fetch_status', 'none') %}
+    {% set lbl = doc_label.get(doc.type, doc.type[:2].upper()) %}
+
+    {% if st == 'success' and doc.get('paperless_id') and paperless_url %}
+      <a href="{{ paperless_url }}/documents/{{ doc.paperless_id }}/preview/"
+         target="_blank"
+         title="{{ doc.type }} — open in Paperless{% if doc.get('pdf_version') %} ({{ doc.pdf_version }}){% endif %}{% if doc.get('pdf_mod_date') %} [{{ doc.pdf_mod_date }}]{% endif %}"
+         class="doc-badge doc-badge-success clickable">{{ lbl }} ✓</a>
+    {% elif st == 'success' %}
+      {# Paperless not configured or ID not yet resolved #}
+      <span class="doc-badge doc-badge-success"
+            title="{{ doc.type }}{% if doc.get('pdf_version') %} — {{ doc.pdf_version }}{% endif %}{% if doc.get('pdf_mod_date') %} [{{ doc.pdf_mod_date }}]{% endif %}">
+        {{ lbl }} ✓
+      </span>
+    {% elif st in ('pending', 'searching', 'downloading', 'uploading') %}
+      <span class="doc-badge doc-badge-pending"
+            title="{{ doc.type }}: {{ st }}…">
+        <span class="spinner-border spinner-border-sm me-1"
+              style="width:.55rem;height:.55rem;border-width:2px"></span>{{ lbl }}
+      </span>
+    {% elif st == 'not_found' %}
+      <span class="doc-badge doc-badge-notfound clickable"
+            title="{{ doc.get('fetch_error', 'Not found') }} — click to provide"
+            onclick="openProvideUrl('{{ device.id }}', '{{ doc.type }}')">
+        {{ lbl }} ?
+      </span>
+    {% elif st == 'error' %}
+      <span class="doc-badge doc-badge-error clickable"
+            title="{{ doc.get('fetch_error', 'Error') }} — click to provide manually"
+            onclick="openProvideUrl('{{ device.id }}', '{{ doc.type }}')">
+        {{ lbl }} !
+      </span>
+    {% else %}
+      <span class="doc-badge doc-badge-pending" style="opacity:.4"
+            title="{{ doc.type }}: not yet fetched">{{ lbl }}</span>
+    {% endif %}
+  {% endfor %}
+
+  {# Fetch / re-fetch button #}
+  {% if device.get('docs') and not is_fetching %}
+  <button class="btn btn-outline-secondary update-btn ms-1"
+          hx-post="/devices/{{ device.id }}/fetch"
+          hx-target="#device-list"
+          title="Re-fetch all documents">↺</button>
+  {% endif %}
+
+  {# Per-doc update-check buttons (only for successfully fetched docs with a source URL) #}
+  {% if not is_fetching %}
+    {% for doc in (device.get('docs') or []) %}
+      {% if doc.get('fetch_status') == 'success' and doc.get('source_url') %}
+      <button class="btn btn-outline-info update-btn"
+              onclick="openUpdateModal('{{ device.id }}', '{{ doc.type }}')"
+              title="Check for {{ doc.type }} update">
+        {{ doc_label.get(doc.type, doc.type[:2].upper()) }} ↻
+      </button>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {# Update result banner (shown after a check-update call) #}
+  {% if update_result is defined %}
+    {% set r = update_result %}
+    {% if r.result == 'updated' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-success">Updated</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'unchanged' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">No update</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'metadata_match' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">Republish</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'no_version_info' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">No version info</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'error' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-danger">Error</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% endif %}
+  {% endif %}
+
+</div>

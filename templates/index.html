@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Device Inventory</title>
+  <!-- Apply saved theme before render to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('inv-theme')||'dark';document.documentElement.setAttribute('data-bs-theme',t);})();</script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    .navbar { background: #1a1a2e !important; }
+    [data-bs-theme="dark"]  body { background: #121220; }
+    [data-bs-theme="light"] body { background: #f0f2f5; }
+
+    .device-row { transition: background .12s; }
+    .proto-pill { font-size: .68rem; padding: 1px 6px; border-radius: 20px;
+                  display: inline-block; margin: 1px; }
+    [data-bs-theme="dark"]  .proto-pill { background: #2d2d44; color: #adb5bd; }
+    [data-bs-theme="light"] .proto-pill { background: #e9ecef; color: #495057; }
+
+    .badge-active   { background-color: #198754; }
+    .badge-retired  { background-color: #6c757d; }
+    .badge-stored   { background-color: #fd7e14; }
+
+    #drawer { position: fixed; top: 0; right: -500px; width: 480px; height: 100vh;
+              transition: right .25s ease; z-index: 1050; overflow-y: auto; }
+    [data-bs-theme="dark"]  #drawer { background: #1e1e2e; box-shadow: -4px 0 24px rgba(0,0,0,.5); }
+    [data-bs-theme="light"] #drawer { background: #fff;    box-shadow: -4px 0 24px rgba(0,0,0,.12); }
+    #drawer.open { right: 0; }
+
+    #drawer-header { background: #1a1a2e; color: #fff; padding: 1rem 1.25rem;
+                     display: flex; justify-content: space-between; align-items: center; }
+    #drawer-body { padding: 1.25rem; }
+
+    #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1040; }
+    #overlay.open { display: block; }
+
+    .cat-header { font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+                  text-transform: uppercase; padding: .4rem .75rem;
+                  border-radius: 4px; margin-bottom: .25rem; }
+    [data-bs-theme="dark"]  .cat-header { background: #2d2d44; color: #adb5bd; }
+    [data-bs-theme="light"] .cat-header { background: #e9ecef; color: #6c757d; }
+
+    .action-btn { padding: 2px 8px; font-size: .75rem; }
+
+    .validation-high   { border-left: 4px solid #198754; }
+    .validation-medium { border-left: 4px solid #ffc107; }
+    .validation-low    { border-left: 4px solid #dc3545; }
+    .validation-error  { border-left: 4px solid #dc3545; }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+
+    /* Doc status badges */
+    .doc-badge { font-size: .68rem; padding: 2px 6px; border-radius: 4px;
+                 text-decoration: none; cursor: default; white-space: nowrap; }
+    .doc-badge.clickable { cursor: pointer; }
+    .doc-badge-success  { background: #198754; color: #fff; }
+    .doc-badge-pending  { background: #6c757d; color: #fff; }
+    .doc-badge-notfound { background: #dc3545; color: #fff; }
+    .doc-badge-error    { background: #ffc107; color: #000; }
+    .update-btn { font-size: .68rem; padding: 1px 5px; line-height: 1.2; }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark px-3">
+  <span class="navbar-brand fw-bold">📄 Device Inventory</span>
+  <div class="d-flex align-items-center gap-3">
+    <span class="text-white-50 small">{{ total }} device{% if total != 1 %}s{% endif %}</span>
+    <button id="theme-btn" class="btn btn-sm btn-outline-light" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
+    <button class="btn btn-sm btn-outline-light"
+            onclick="openDrawer('Add Device')"
+            hx-get="/devices/new"
+            hx-target="#drawer-body">
+      + Add Device
+    </button>
+  </div>
+</nav>
+
+<!-- Slide-in drawer -->
+<div id="overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div id="drawer-header">
+    <span id="drawer-title">Add Device</span>
+    <button class="btn btn-sm btn-outline-light" onclick="closeDrawer()">✕</button>
+  </div>
+  <div id="drawer-body"></div>
+</div>
+
+<!-- Provide-URL modal -->
+<div class="modal fade" id="provideUrlModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Provide Document</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="provide-url-form" enctype="multipart/form-data">
+        <div class="modal-body">
+          <input type="hidden" name="doc_type" id="pu-doc-type">
+          <div class="mb-3">
+            <label class="form-label">Direct PDF URL</label>
+            <input name="url" class="form-control" placeholder="https://…">
+          </div>
+          <div class="text-center text-muted small mb-2">— or —</div>
+          <div class="mb-3">
+            <label class="form-label">Upload PDF file</label>
+            <input name="file" type="file" class="form-control" accept=".pdf,application/pdf">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Check-for-update modal -->
+<div class="modal fade" id="updateModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Check for Manual Update</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="update-form">
+        <div class="modal-body">
+          <input type="hidden" name="doc_type" id="upd-doc-type">
+          <p class="small text-muted">
+            The system will send a HEAD request to the stored source URL first.
+            A full download only happens if the server signals a change.
+          </p>
+          <div class="mb-3">
+            <label class="form-label">Update note <span class="text-muted small">(optional — appended to new document title)</span></label>
+            <input name="note" class="form-control" placeholder="Firmware update, corrections, new model year…">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Check &amp; Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Device list -->
+<div class="container-fluid py-3" style="max-width:1200px">
+  <div id="device-list">
+    {% include "_device_list.html" %}
+  </div>
+</div>
+
+<script>
+// ── Theme ──────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-bs-theme', next);
+  localStorage.setItem('inv-theme', next);
+  document.getElementById('theme-btn').textContent = next === 'dark' ? '☀' : '🌙';
+}
+document.getElementById('theme-btn').textContent =
+  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? '☀' : '🌙';
+
+// ── Drawer ─────────────────────────────────────────────────────────────────
+function openDrawer(title) {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  if (title) document.getElementById('drawer-title').textContent = title;
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('drawer-body').innerHTML = '';
+  document.getElementById('drawer-title').textContent = 'Add Device';
+}
+document.body.addEventListener('deviceSaved', () => closeDrawer());
+
+// ── Slug preview ───────────────────────────────────────────────────────────
+document.body.addEventListener('input', e => {
+  const form = e.target.closest('form');
+  if (!form) return;
+  const mfr = form.querySelector('#manufacturer');
+  const mdl = form.querySelector('#model');
+  const preview = form.querySelector('#id-preview');
+  if (!mfr || !mdl || !preview) return;
+  const slug = [mfr.value, mdl.value]
+    .join('-').toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  preview.textContent = slug || '—';
+});
+
+// ── Provide URL modal ──────────────────────────────────────────────────────
+let _puDeviceId = '';
+function openProvideUrl(deviceId, docType) {
+  _puDeviceId = deviceId;
+  document.getElementById('pu-doc-type').value = docType;
+  new bootstrap.Modal(document.getElementById('provideUrlModal')).show();
+}
+document.getElementById('provide-url-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  const resp = await fetch(`/devices/${_puDeviceId}/provide-url`, {method:'POST', body: fd});
+  const html = await resp.text();
+  const target = document.getElementById(`doc-status-${_puDeviceId}`);
+  if (target) target.outerHTML = html;
+  bootstrap.Modal.getInstance(document.getElementById('provideUrlModal')).hide();
+});
+
+// ── Check-for-update modal ─────────────────────────────────────────────────
+let _updDeviceId = '';
+function openUpdateModal(deviceId, docType) {
+  _updDeviceId = deviceId;
+  document.getElementById('upd-doc-type').value = docType;
+  new bootstrap.Modal(document.getElementById('updateModal')).show();
+}
+document.getElementById('update-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  const btn = this.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  const resp = await fetch(`/devices/${_updDeviceId}/check-update`, {method:'POST', body: fd});
+  const html = await resp.text();
+  const target = document.getElementById(`doc-status-${_updDeviceId}`);
+  if (target) target.outerHTML = html;
+  bootstrap.Modal.getInstance(document.getElementById('updateModal')).hide();
+  btn.disabled = false; btn.textContent = 'Check & Apply';
+});
+</script>
+</body>
+</html>

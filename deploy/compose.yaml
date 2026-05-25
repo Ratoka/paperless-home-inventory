@@ -1,0 +1,13 @@
+services:
+  inventory-manager:
+    build: .
+    image: inventory-manager:latest
+    container_name: inventory-manager
+    volumes:
+      - /mnt/zfs-acd-01/apps/inventory-manager:/app
+      - /mnt/zfs-acd-01/media/docs/inventory:/data
+    environment:
+      - DATA_DIR=/data
+      - PAPERLESS_URL=http://10.250.0.240:30070
+      - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+    restart: unless-stopped

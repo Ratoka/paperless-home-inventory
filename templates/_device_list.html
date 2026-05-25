@@ -1,0 +1,79 @@
+{% set status_class = {'active': 'badge-active', 'retired': 'badge-retired', 'stored': 'badge-stored'} %}
+{% if not by_category %}
+<div class="text-center text-muted py-5">
+  <div style="font-size:3rem">📋</div>
+  <p class="mt-2">No devices yet. Click <strong>+ Add Device</strong> to get started.</p>
+</div>
+{% else %}
+{% for primary_key, cat_info in category_tree.items() %}
+  {% if by_category.get(primary_key) %}
+  <div class="mb-4">
+    <div class="cat-header">
+      {{ cat_info.icon }} {{ cat_info.label }}
+      <span class="ms-2 fw-normal opacity-75">({{ by_category[primary_key] | length }})</span>
+    </div>
+    <div class="card shadow-sm">
+      <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+        <thead class="table-secondary">
+          <tr>
+            <th style="width:18%">Name</th>
+            <th style="width:12%">Manufacturer</th>
+            <th style="width:10%">Model</th>
+            <th style="width:14%">Category</th>
+            <th style="width:11%">Protocols</th>
+            <th style="width:7%">Status</th>
+            <th style="width:14%">Docs</th>
+            <th style="width:14%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for device in by_category[primary_key] %}
+          <tr class="device-row" id="device-{{ device.id }}">
+            <td class="fw-semibold">{{ device.name }}</td>
+            <td class="text-muted">{{ device.manufacturer }}</td>
+            <td class="text-muted font-monospace small">{{ device.model or '—' }}</td>
+            <td class="small text-muted">{{ device._cat_label or '—' }}</td>
+            <td>
+              {% for p in (device.protocols or []) %}
+              <span class="proto-pill">{{ p }}</span>
+              {% endfor %}
+            </td>
+            <td>
+              <span class="badge {{ status_class.get(device.status, 'bg-secondary') }} small">
+                {{ device.status }}
+              </span>
+            </td>
+            <td>
+              {% include "_doc_status.html" %}
+            </td>
+            <td class="text-end">
+              <button class="btn btn-outline-secondary action-btn me-1"
+                      onclick="openDrawer('Edit Device')"
+                      hx-get="/devices/{{ device.id }}/edit"
+                      hx-target="#drawer-body">
+                Edit
+              </button>
+              {% if device.status == 'active' %}
+              <button class="btn btn-outline-warning action-btn me-1"
+                      hx-post="/devices/{{ device.id }}/retire"
+                      hx-target="#device-list"
+                      hx-confirm="Mark {{ device.name }} as retired?">
+                Retire
+              </button>
+              {% endif %}
+              <button class="btn btn-outline-danger action-btn"
+                      hx-delete="/devices/{{ device.id }}"
+                      hx-target="#device-list"
+                      hx-confirm="Delete {{ device.name }} from inventory? Associated manuals will also be removed from Paperless. This cannot be undone.">
+                ✕
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  {% endif %}
+{% endfor %}
+{% endif %}
