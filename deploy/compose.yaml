@@ -1,0 +1,20 @@
+services:
+  inventory-manager:
+    build: .
+    image: inventory-manager:1.1
+    container_name: inventory-manager
+    volumes:
+      # App source — path where you sync/clone the inventory-manager files
+      - /path/to/apps/inventory-manager:/app
+      # Data volume — stores devices.yaml, config.yaml, and downloaded PDFs
+      - /path/to/data/inventory:/data
+    ports:
+      - "7070:7070"
+    environment:
+      - DATA_DIR=/data
+      - PAPERLESS_URL=${PAPERLESS_URL}
+      - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+      # Optional: enable HA import tool
+      - HA_URL=${HA_URL:-}
+      - HA_TOKEN=${HA_TOKEN:-}
+    restart: unless-stopped

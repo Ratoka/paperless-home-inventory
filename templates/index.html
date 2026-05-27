@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Home Inventory</title>
+  <!-- Apply saved theme before render to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('inv-theme')||'dark';document.documentElement.setAttribute('data-bs-theme',t);})();</script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <style>
+    .navbar { background: #1a1a2e !important; }
+    [data-bs-theme="dark"]  body { background: #121220; }
+    [data-bs-theme="light"] body { background: #f0f2f5; }
+
+    .device-row { transition: background .12s; }
+    .proto-pill { font-size: .68rem; padding: 1px 6px; border-radius: 20px;
+                  display: inline-block; margin: 1px; }
+    [data-bs-theme="dark"]  .proto-pill { background: #2d2d44; color: #adb5bd; }
+    [data-bs-theme="light"] .proto-pill { background: #e9ecef; color: #495057; }
+
+    .badge-active   { background-color: #198754; }
+    .badge-retired  { background-color: #6c757d; }
+    .badge-stored   { background-color: #fd7e14; }
+
+    #drawer { position: fixed; top: 0; right: -640px; width: 620px; height: 100vh;
+              transition: right .25s ease; z-index: 1050; overflow-y: auto; }
+    [data-bs-theme="dark"]  #drawer { background: #1e1e2e; box-shadow: -4px 0 24px rgba(0,0,0,.5); }
+    [data-bs-theme="light"] #drawer { background: #fff;    box-shadow: -4px 0 24px rgba(0,0,0,.12); }
+    #drawer.open { right: 0; }
+
+    #drawer-header { background: #1a1a2e; color: #fff; padding: 1rem 1.25rem;
+                     display: flex; justify-content: space-between; align-items: center; }
+    #drawer-body { padding: 1.25rem; }
+
+    #overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 1040; }
+    #overlay.open { display: block; }
+
+    .cat-header { font-size: .7rem; font-weight: 700; letter-spacing: .08em;
+                  text-transform: uppercase; padding: .4rem .75rem;
+                  border-radius: 4px; margin-bottom: .25rem; }
+    [data-bs-theme="dark"]  .cat-header { background: #2d2d44; color: #adb5bd; }
+    [data-bs-theme="light"] .cat-header { background: #e9ecef; color: #6c757d; }
+
+    .action-btn { padding: 2px 8px; font-size: .75rem; }
+
+    .validation-high   { border-left: 4px solid #198754; }
+    .validation-medium { border-left: 4px solid #ffc107; }
+    .validation-low    { border-left: 4px solid #dc3545; }
+    .validation-error  { border-left: 4px solid #dc3545; }
+    .htmx-indicator { display: none; }
+    .htmx-request .htmx-indicator { display: inline-block; }
+
+    /* Doc status badges */
+    .doc-badge { font-size: .68rem; padding: 2px 6px; border-radius: 4px;
+                 text-decoration: none; cursor: default; white-space: nowrap; }
+    .doc-badge.clickable { cursor: pointer; }
+    .doc-badge-success  { background: #198754; color: #fff; }
+    .doc-badge-queued   { background: #a3cfbb; color: #0a3622; }
+    .doc-badge-active   { background: #6c757d; color: #fff; }
+    .doc-badge-notfound { background: #ffc107; color: #000; }
+    .doc-badge-error    { background: #dc3545; color: #fff; }
+    .update-btn { font-size: .68rem; padding: 1px 5px; line-height: 1.2; }
+    .fetch-btn  { font-size: .72rem; padding: 2px 7px; line-height: 1.3; }
+
+    /* Tree view */
+    .cat-toggle { background: transparent; cursor: pointer; }
+    [data-bs-theme="dark"]  .cat-toggle { color: #adb5bd; }
+    [data-bs-theme="dark"]  .cat-toggle:hover { background: #2d2d44; color: #fff; }
+    [data-bs-theme="light"] .cat-toggle { color: #495057; }
+    [data-bs-theme="light"] .cat-toggle:hover { background: #e9ecef; color: #212529; }
+    .cat-chevron { font-size: .7rem; width: 1rem; text-align: center; flex-shrink: 0; }
+
+    /* Duplicate warning flash */
+    @keyframes dup-flash { 0%,100%{opacity:1} 50%{opacity:.4} }
+    .dup-flash { animation: dup-flash .3s ease 3; }
+
+    /* Offcanvas nav */
+    #nav-offcanvas { background: #1a1a2e !important; width: 230px; }
+    #nav-offcanvas .nav-link { color: rgba(255,255,255,.8); border-radius: 6px; padding: .5rem .85rem; }
+    #nav-offcanvas .nav-link:hover { background: rgba(255,255,255,.08); color: #fff; }
+    #nav-offcanvas .nav-link.active { background: rgba(255,255,255,.14); color: #fff; }
+    #nav-offcanvas .nav-section { color: rgba(255,255,255,.4); font-size:.65rem; letter-spacing:.1em;
+                                  text-transform:uppercase; padding:.6rem .85rem .2rem; }
+  </style>
+</head>
+<body>
+
+<!-- Left-side offcanvas navigation -->
+<div class="offcanvas offcanvas-start" tabindex="-1" id="nav-offcanvas"
+     aria-labelledby="nav-offcanvas-label">
+  <div class="offcanvas-header pb-2">
+    <span class="offcanvas-title text-white fw-bold" id="nav-offcanvas-label">📄 Home Inventory</span>
+    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="offcanvas"></button>
+  </div>
+  <div class="offcanvas-body pt-1 px-2">
+    <nav class="nav flex-column gap-1">
+
+      <span class="nav-section">Inventory</span>
+      <a class="nav-link" href="#"
+         hx-get="/views/inventory"
+         hx-target="#main-view"
+         hx-swap="innerHTML"
+         data-bs-dismiss="offcanvas"
+         onclick="setActiveNav(this)">
+        📦 Devices
+      </a>
+      <a class="nav-link" href="#"
+         hx-get="/views/tasks"
+         hx-target="#main-view"
+         hx-swap="innerHTML"
+         data-bs-dismiss="offcanvas"
+         onclick="setActiveNav(this)">
+        ✅ Tasks
+      </a>
+      <a class="nav-link" href="#"
+         hx-get="/views/categories"
+         hx-target="#main-view"
+         hx-swap="innerHTML"
+         data-bs-dismiss="offcanvas"
+         onclick="setActiveNav(this)">
+        🏷 Categories
+      </a>
+      <a class="nav-link" href="#"
+         hx-get="/views/manufacturers"
+         hx-target="#main-view"
+         hx-swap="innerHTML"
+         data-bs-dismiss="offcanvas"
+         onclick="setActiveNav(this)">
+        🏭 Manufacturers
+      </a>
+      <a class="nav-link" href="#"
+         hx-get="/views/settings"
+         hx-target="#main-view"
+         hx-swap="innerHTML"
+         data-bs-dismiss="offcanvas"
+         onclick="setActiveNav(this)">
+        ⚙ Settings
+      </a>
+
+      {% if ha_available %}
+      <span class="nav-section mt-2">Home Assistant</span>
+      <a class="nav-link" href="#"
+         onclick="openDrawer('Import from Home Assistant'); setActiveNav(null)"
+         hx-get="/tools/ha-import"
+         hx-target="#drawer-body"
+         data-bs-dismiss="offcanvas">
+        📡 Import Devices
+      </a>
+      <a class="nav-link" href="#"
+         onclick="openDrawer('HA Ignore List'); setActiveNav(null)"
+         hx-get="/tools/ha-ignore-list"
+         hx-target="#drawer-body"
+         data-bs-dismiss="offcanvas">
+        🚫 Ignore List
+      </a>
+      {% endif %}
+
+    </nav>
+  </div>
+</div>
+
+<!-- Navbar -->
+<nav class="navbar navbar-dark px-3 gap-3">
+  <button class="btn btn-sm btn-outline-light px-2" data-bs-toggle="offcanvas"
+          data-bs-target="#nav-offcanvas" title="Menu">☰</button>
+  <span class="navbar-brand fw-bold flex-shrink-0 mb-0">Home Inventory</span>
+  <input id="search-input" type="search" class="form-control form-control-sm"
+         placeholder="Search devices…" autocomplete="off"
+         style="max-width:320px"
+         oninput="scheduleFilter(this.value)">
+  <div class="d-flex align-items-center gap-2 ms-auto flex-shrink-0">
+    <span class="text-white-50 small" id="device-count">{{ total }} device{% if total != 1 %}s{% endif %}</span>
+    <button id="theme-btn" class="btn btn-sm btn-outline-light" onclick="toggleTheme()" title="Toggle light/dark mode">☀</button>
+    <button class="btn btn-sm btn-outline-light"
+            onclick="openDrawer('Add Device')"
+            hx-get="/devices/new"
+            hx-target="#drawer-body">
+      + Add Device
+    </button>
+  </div>
+</nav>
+
+<!-- Toast notification -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index:2000">
+  <div id="app-toast" class="toast align-items-center border-0" role="alert" aria-live="assertive" aria-atomic="true">
+    <div class="d-flex">
+      <div class="toast-body small fw-semibold" id="app-toast-body"></div>
+      <button type="button" class="btn-close me-2 m-auto" data-bs-dismiss="toast"></button>
+    </div>
+  </div>
+</div>
+
+<!-- Slide-in drawer -->
+<div id="overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <div id="drawer-header">
+    <span id="drawer-title">Add Device</span>
+    <button class="btn btn-sm btn-outline-light" onclick="closeDrawer()">✕</button>
+  </div>
+  <div id="drawer-body"></div>
+</div>
+
+<!-- Provide-URL modal -->
+<div class="modal fade" id="provideUrlModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Provide Document</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="provide-url-form" enctype="multipart/form-data">
+        <div class="modal-body">
+          <input type="hidden" name="doc_type" id="pu-doc-type">
+          <div class="mb-3">
+            <label class="form-label">Manual Link</label>
+            <input name="url" class="form-control" placeholder="https://… (PDF or web page)">
+            <div class="form-text">Accepts a direct PDF URL or a web page — web pages are converted to PDF automatically.</div>
+          </div>
+          <div class="text-center text-muted small mb-2">— or —</div>
+          <div class="mb-3">
+            <label class="form-label">Upload PDF file</label>
+            <input name="file" type="file" class="form-control" accept=".pdf,application/pdf">
+          </div>
+          <div id="pu-error" class="alert alert-danger mt-2 mb-0" style="display:none"></div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" id="pu-submit" class="btn btn-primary">Submit</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Check-for-update modal -->
+<div class="modal fade" id="updateModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Check for Manual Update</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <form id="update-form">
+        <div class="modal-body">
+          <input type="hidden" name="doc_type" id="upd-doc-type">
+          <p class="small text-muted">
+            The system will send a HEAD request to the stored source URL first.
+            A full download only happens if the server signals a change.
+          </p>
+          <div class="mb-3">
+            <label class="form-label">Update note <span class="text-muted small">(optional — appended to new document title)</span></label>
+            <input name="note" class="form-control" placeholder="Firmware update, corrections, new model year…">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Check &amp; Apply</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Main view (swapped by HTMX nav) -->
+<div class="container-fluid py-3" style="max-width:1200px" id="main-view">
+  <div id="device-list">
+    {% include "_device_list.html" %}
+  </div>
+</div>
+
+<script>
+// ── Theme ──────────────────────────────────────────────────────────────────
+function toggleTheme() {
+  const html = document.documentElement;
+  const next = html.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark';
+  html.setAttribute('data-bs-theme', next);
+  localStorage.setItem('inv-theme', next);
+  document.getElementById('theme-btn').textContent = next === 'dark' ? '☀' : '🌙';
+}
+document.getElementById('theme-btn').textContent =
+  document.documentElement.getAttribute('data-bs-theme') === 'dark' ? '☀' : '🌙';
+
+// ── Drawer ─────────────────────────────────────────────────────────────────
+function openDrawer(title) {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('overlay').classList.add('open');
+  if (title) document.getElementById('drawer-title').textContent = title;
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('overlay').classList.remove('open');
+  document.getElementById('drawer-body').innerHTML = '';
+  document.getElementById('drawer-title').textContent = 'Add Device';
+}
+document.body.addEventListener('deviceSaved', () => closeDrawer());
+
+// ── Slug preview ───────────────────────────────────────────────────────────
+document.body.addEventListener('input', e => {
+  const form = e.target.closest('form');
+  if (!form) return;
+  const mfr = form.querySelector('#manufacturer');
+  const mdl = form.querySelector('#model');
+  const preview = form.querySelector('#id-preview');
+  if (!mfr || !mdl || !preview) return;
+  const slug = [mfr.value, mdl.value]
+    .join('-').toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/[\s_]+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+  preview.textContent = slug || '—';
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg, type) {
+  const el = document.getElementById('app-toast');
+  const body = document.getElementById('app-toast-body');
+  body.textContent = msg;
+  el.className = 'toast align-items-center border-0 text-bg-' +
+    (type === 'error' ? 'danger' : type === 'success' ? 'success' : 'primary');
+  bootstrap.Toast.getOrCreateInstance(el, {delay: 5000}).show();
+}
+
+// ── Nav active state ───────────────────────────────────────────────────────
+function setActiveNav(el) {
+  document.querySelectorAll('#nav-offcanvas .nav-link').forEach(a => a.classList.remove('active'));
+  if (el) el.classList.add('active');
+}
+
+// ── Provide URL modal ──────────────────────────────────────────────────────
+let _puDeviceId = '';
+function openProvideUrl(deviceId, docType) {
+  _puDeviceId = deviceId;
+  document.getElementById('pu-doc-type').value = docType;
+  const errEl = document.getElementById('pu-error');
+  errEl.style.display = 'none'; errEl.textContent = '';
+  document.getElementById('provide-url-form').reset();
+  new bootstrap.Modal(document.getElementById('provideUrlModal')).show();
+}
+document.getElementById('provide-url-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('pu-submit');
+  const errEl = document.getElementById('pu-error');
+  errEl.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Queuing…';
+  try {
+    const resp = await fetch(`/devices/${_puDeviceId}/provide-url`, {method:'POST', body: new FormData(this)});
+    if (!resp.ok) {
+      const body = await resp.json().catch(() => ({detail: 'Request failed'}));
+      errEl.textContent = body.detail || 'Unknown error';
+      errEl.style.display = '';
+      return;
+    }
+    const html = await resp.text();
+    const target = document.getElementById(`doc-status-${_puDeviceId}`);
+    if (target) target.outerHTML = html;
+    bootstrap.Modal.getInstance(document.getElementById('provideUrlModal')).hide();
+    showToast('Queued — open Tasks (☰) to track progress', 'primary');
+  } catch (err) {
+    errEl.textContent = 'Network error — ' + err.message;
+    errEl.style.display = '';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+  }
+});
+
+// ── Check-for-update modal ─────────────────────────────────────────────────
+let _updDeviceId = '';
+function openUpdateModal(deviceId, docType) {
+  _updDeviceId = deviceId;
+  document.getElementById('upd-doc-type').value = docType;
+  new bootstrap.Modal(document.getElementById('updateModal')).show();
+}
+document.getElementById('update-form').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const fd = new FormData(this);
+  const btn = this.querySelector('[type=submit]');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  const resp = await fetch(`/devices/${_updDeviceId}/check-update`, {method:'POST', body: fd});
+  const html = await resp.text();
+  const target = document.getElementById(`doc-status-${_updDeviceId}`);
+  if (target) target.outerHTML = html;
+  bootstrap.Modal.getInstance(document.getElementById('updateModal')).hide();
+  btn.disabled = false; btn.textContent = 'Check & Apply';
+});
+
+// ── Category tree state ────────────────────────────────────────────────────
+function _catState() {
+  try { return JSON.parse(localStorage.getItem('inv-cat-state') || '{}'); } catch { return {}; }
+}
+function _saveCatState(state) {
+  localStorage.setItem('inv-cat-state', JSON.stringify(state));
+}
+
+function toggleCategory(key) {
+  const body    = document.getElementById('catbody-'  + key);
+  const chevron = document.getElementById('chevron-'  + key);
+  if (!body) return;
+  const opening = body.style.display === 'none';
+  body.style.display    = opening ? '' : 'none';
+  chevron.textContent   = opening ? '▾' : '▸';
+  const state = _catState();
+  state[key] = opening ? 'open' : 'closed';
+  _saveCatState(state);
+}
+
+function applyCatStates() {
+  const state = _catState();
+  document.querySelectorAll('.cat-section').forEach(sec => {
+    const key     = sec.dataset.catKey;
+    const body    = document.getElementById('catbody-'  + key);
+    const chevron = document.getElementById('chevron-'  + key);
+    if (!body || !chevron) return;
+    // Default: closed unless explicitly opened
+    const open = state[key] === 'open';
+    body.style.display  = open ? '' : 'none';
+    chevron.textContent = open ? '▾' : '▸';
+  });
+}
+
+// Apply tree state on initial load and after every HTMX device-list or main-view swap
+applyCatStates();
+function _onDeviceListUpdate(e) {
+  const targetId = (e.detail && e.detail.target && e.detail.target.id)
+    || (e.target && e.target.id) || '';
+  if (targetId !== 'device-list' && targetId !== 'main-view') return;
+  const q = document.getElementById('search-input').value.trim();
+  if (q) {
+    filterDevices(q);
+  } else {
+    applyCatStates();
+  }
+}
+document.body.addEventListener('htmx:afterSwap',   _onDeviceListUpdate);
+document.body.addEventListener('htmx:afterSettle', _onDeviceListUpdate);
+
+// ── Search / filter ────────────────────────────────────────────────────────
+let _filterTimer;
+function scheduleFilter(q) {
+  clearTimeout(_filterTimer);
+  _filterTimer = setTimeout(() => filterDevices(q.trim().toLowerCase()), 120);
+}
+
+function filterDevices(q) {
+  const noResults = document.getElementById('no-results');
+  let anyVisible  = false;
+
+  document.querySelectorAll('.cat-section').forEach(sec => {
+    const key   = sec.dataset.catKey;
+    const rows  = sec.querySelectorAll('.device-row');
+    const body  = document.getElementById('catbody-'  + key);
+    const chev  = document.getElementById('chevron-'  + key);
+    const total = document.getElementById('count-'    + key);
+    const match = document.getElementById('match-'    + key);
+    let visible = 0;
+
+    rows.forEach(row => {
+      const hit = !q || (row.dataset.search || '').includes(q);
+      row.style.display = hit ? '' : 'none';
+      if (hit) visible++;
+    });
+
+    if (q) {
+      // In search mode: expand categories with hits, hide empty ones
+      const hasHits = visible > 0;
+      sec.style.display         = hasHits ? '' : 'none';
+      if (body)  body.style.display   = hasHits ? '' : 'none';
+      if (chev)  chev.textContent     = hasHits ? '▾' : '▸';
+      if (match) { match.style.display = hasHits ? '' : 'none'; match.textContent = `${visible} match${visible !== 1 ? 'es' : ''}`; }
+      if (total) total.style.display  = 'none';
+      if (hasHits) anyVisible = true;
+    } else {
+      // Restore normal tree state
+      sec.style.display = '';
+      if (match) match.style.display = 'none';
+      if (total) total.style.display = '';
+      anyVisible = true;
+    }
+  });
+
+  if (!q) applyCatStates();
+  if (noResults) noResults.style.display = (q && !anyVisible) ? '' : 'none';
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,342 @@
+{% set is_edit = edit_id is not none %}
+{% set d = device or {} %}
+{% set dev_protocols = d.get('protocols') or [] %}
+
+{# Build category_tree as JS for dynamic secondary/tertiary behaviour #}
+<script>
+const CATEGORY_TREE = {{ category_tree | tojson }};
+function onPrimaryChange() {
+  const primary = document.getElementById('cat_primary').value;
+  const info = CATEGORY_TREE[primary] || {};
+  const secInput  = document.getElementById('cat_secondary');
+  const secList   = document.getElementById('secondary-options');
+  const tertWrap  = document.getElementById('tertiary-wrap');
+  const tertSel   = document.getElementById('cat_tertiary');
+  document.getElementById('form-details').style.display = primary ? '' : 'none';
+
+  // Update datalist options for secondary
+  secList.innerHTML = '';
+  (info.secondaries || []).forEach(s => {
+    const opt = document.createElement('option');
+    opt.value = s;
+    secList.appendChild(opt);
+  });
+  if (!info.automotive) {
+    secInput.placeholder = 'e.g. ' + (info.secondaries || ['—'])[0];
+  } else {
+    secInput.placeholder = 'Vehicle name (e.g. Camaro SS, Honda Pilot)';
+  }
+
+  // Tertiary: only for automotive
+  if (info.automotive && (info.tertiaries || []).length) {
+    tertWrap.style.display = '';
+    tertSel.innerHTML = '<option value="">— select —</option>';
+    (info.tertiaries || []).forEach(t => {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.selected = (t === '{{ cat_tertiary | e }}');
+      opt.textContent = t;
+      tertSel.appendChild(opt);
+    });
+  } else {
+    tertWrap.style.display = 'none';
+    tertSel.value = '';
+  }
+
+  // Show Protocols and HA Integration only for electronic categories
+  const showElec = info.electronic !== false;
+  const protosWrap = document.getElementById('protocols-wrap');
+  const integWrap  = document.getElementById('integration-wrap');
+  if (protosWrap) protosWrap.style.display = showElec ? '' : 'none';
+  if (integWrap)  integWrap.style.display  = showElec ? '' : 'none';
+}
+</script>
+
+<form
+  {% if is_edit %}
+    hx-post="/devices/{{ edit_id }}/update"
+  {% else %}
+    hx-post="/devices"
+  {% endif %}
+  hx-target="#device-list"
+  hx-on:htmx:after-request="if(event.detail.successful && event.target === this) document.body.dispatchEvent(new Event('deviceSaved'))"
+  autocomplete="off">
+
+  <!-- ── Identity ────────────────────────────────────────────── -->
+  <div class="mb-3">
+    <label class="form-label fw-semibold">Device Name <span class="text-danger">*</span></label>
+    <input id="name" name="name" class="form-control" required
+           placeholder="Samsung 85&quot; QLED TV"
+           value="{{ d.get('name','') }}"
+           {% if not is_edit %}
+           hx-get="/devices/check-duplicate"
+           hx-trigger="blur changed"
+           hx-include="#name,#model"
+           hx-target="#duplicate-warning"
+           {% endif %}>
+  </div>
+
+  <div class="row g-2 mb-2">
+    <div class="col">
+      <label class="form-label fw-semibold">Manufacturer <span class="text-danger">*</span></label>
+      <input id="manufacturer" name="manufacturer" class="form-control" required
+             placeholder="Samsung" value="{{ d.get('manufacturer','') }}">
+    </div>
+    <div class="col">
+      <label class="form-label fw-semibold">Model</label>
+      <input id="model" name="model" class="form-control"
+             placeholder="QN85QN90AAFXZA" value="{{ d.get('model','') }}"
+             {% if not is_edit %}
+             hx-get="/devices/check-duplicate"
+             hx-trigger="blur changed"
+             hx-include="#name,#model"
+             hx-target="#duplicate-warning"
+             {% endif %}>
+    </div>
+  </div>
+
+  {% if not is_edit %}
+  <div id="duplicate-warning" class="mb-2"></div>
+  {% endif %}
+
+  <!-- ── Product Validation ────────────────────────────────── -->
+  <div class="mb-3">
+    <button type="button" class="btn btn-sm btn-outline-primary w-100"
+            hx-post="/validate"
+            hx-include="#manufacturer, #model"
+            hx-target="#validation-result"
+            hx-indicator="#val-spinner">
+      <span class="htmx-indicator spinner-border spinner-border-sm me-1" id="val-spinner"></span>
+      Check Product
+    </button>
+    <div id="validation-result" class="mt-2"></div>
+  </div>
+
+  <hr class="my-3">
+
+  <!-- ── Category ─────────────────────────────────────────── -->
+  <p class="fw-semibold mb-2 small text-uppercase text-muted" style="letter-spacing:.06em">Category</p>
+
+  <div class="mb-2">
+    <label class="form-label fw-semibold">Primary <span class="text-danger">*</span></label>
+    <select id="cat_primary" name="cat_primary" class="form-select" required
+            onchange="onPrimaryChange()">
+      <option value="">— select —</option>
+      {% for key, info in category_tree.items() %}
+      <option value="{{ key }}" {% if cat_primary == key %}selected{% endif %}>
+        {{ info.icon }} {{ info.label }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div id="form-details" style="display:{% if cat_primary %}block{% else %}none{% endif %}">
+
+  <div class="mb-2">
+    <label class="form-label fw-semibold">Secondary</label>
+    <input id="cat_secondary" name="cat_secondary" class="form-control"
+           list="secondary-options"
+           placeholder="Select primary first"
+           value="{{ cat_secondary }}">
+    <datalist id="secondary-options"></datalist>
+  </div>
+
+  <div class="mb-3" id="tertiary-wrap" style="display:none">
+    <label class="form-label fw-semibold">Tertiary</label>
+    <select id="cat_tertiary" name="cat_tertiary" class="form-select">
+      <option value="">— select —</option>
+    </select>
+  </div>
+
+  <hr class="my-3">
+
+  <!-- ── Classification ───────────────────────────────────── -->
+  <div id="protocols-wrap" class="mb-3">
+    <label class="form-label fw-semibold">Protocols</label>
+    <div class="d-flex flex-wrap gap-2">
+      {% for p in protocols %}
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" name="protocols"
+               id="proto-{{ p }}" value="{{ p }}"
+               {% if p in dev_protocols %}checked{% endif %}>
+        <label class="form-check-label small" for="proto-{{ p }}">{{ p }}</label>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div id="integration-wrap" class="mb-3">
+    <label class="form-label fw-semibold">HA Integration</label>
+    <select name="integration" class="form-select form-select-sm">
+      <option value="">— none —</option>
+      {% for integ in integrations %}
+      <option value="{{ integ }}" {% if d.get('integration') == integ %}selected{% endif %}>
+        {{ integ }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label fw-semibold">Status</label>
+    <select name="status" class="form-select form-select-sm">
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if d.get('status', 'active') == s %}selected{% endif %}>
+        {{ s | capitalize }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label fw-semibold">Location</label>
+    <input name="location" class="form-control form-control-sm"
+           placeholder="Living Room, Network Closet, Garage…"
+           value="{{ d.get('location','') }}">
+  </div>
+
+  <hr class="my-3">
+
+  <!-- ── Documentation ────────────────────────────────────── -->
+  <p class="fw-semibold mb-1 small text-uppercase text-muted" style="letter-spacing:.06em">
+    Documentation
+  </p>
+
+  <!-- User Manual -->
+  {% set _auto_hint = ([d.get('manufacturer',''), d.get('model',''), 'user manual PDF'] | reject('equalto','') | join(' ')) if d.get('manufacturer') else '' %}
+  <div class="card mb-2">
+    <div class="card-header py-2 small fw-semibold">User Manual</div>
+    <div class="card-body py-2">
+      <div class="mb-2">
+        <label class="form-label small mb-1">Search hint</label>
+        <input id="manual-hint" name="manual_hint" class="form-control form-control-sm"
+               placeholder="e.g. Samsung QN85QN90 user manual PDF"
+               value="{{ d.get('manual_hint') or _auto_hint }}"
+               data-auto="{{ _auto_hint }}">
+      </div>
+      <div>
+        <label class="form-label small mb-1 text-muted">Manual Link — PDF or web page (skips search)</label>
+        <input name="manual_url" class="form-control form-control-sm"
+               placeholder="https://…"
+               value="{{ d.get('manual_url', '') }}">
+      </div>
+    </div>
+  </div>
+
+  <!-- Additional documents (URL required) -->
+  <div id="extra-docs-container"></div>
+  <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2"
+          onclick="addExtraDoc()">+ Add Document</button>
+
+  <hr class="my-3">
+
+  <!-- ── ID (advanced) ─────────────────────────────────────── -->
+  {% if not is_edit %}
+  <details class="mb-3">
+    <summary class="small text-muted" style="cursor:pointer">Advanced: override auto-generated ID</summary>
+    <div class="mt-2">
+      <label class="form-label small">
+        ID preview: <code id="id-preview" class="text-primary">—</code>
+      </label>
+      <input name="custom_id" class="form-control form-control-sm mt-1"
+             placeholder="leave blank to use auto-generated ID">
+      <div class="form-text">Lowercase, hyphens only. Cannot be changed after saving.</div>
+    </div>
+  </details>
+  {% endif %}
+
+  <!-- ── Actions ───────────────────────────────────────────── -->
+  <div class="d-flex gap-2">
+    <button type="submit" class="btn btn-primary flex-grow-1"
+            {% if not is_edit %}onclick="return _checkDupWarning()"{% endif %}>
+      {% if is_edit %}Save Changes{% else %}Add Device{% endif %}
+    </button>
+    <button type="button" class="btn btn-outline-secondary" onclick="closeDrawer()">Cancel</button>
+  </div>
+
+  </div>{# /form-details #}
+
+</form>
+
+<script>
+// Initialise category UI on load (handles edit mode where values are pre-set)
+onPrimaryChange();
+
+// ── Extra documents ────────────────────────────────────────────────────────
+let _extraIdx = 0;
+function addExtraDoc(label, url) {
+  const idx = _extraIdx++;
+  const card = document.createElement('div');
+  card.className = 'card mb-2';
+  card.id = `extra-doc-${idx}`;
+  card.innerHTML = `
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <span class="small fw-semibold">Additional Document</span>
+      <button type="button" class="btn-close" style="font-size:.65rem"
+              onclick="document.getElementById('extra-doc-${idx}').remove()"></button>
+    </div>
+    <div class="card-body py-2">
+      <div class="mb-2">
+        <label class="form-label small mb-1">Label <span class="text-danger">*</span></label>
+        <input name="extra_label_${idx}" class="form-control form-control-sm" required
+               placeholder="e.g. Installation Guide, Wiring Diagram…"
+               value="${(label || '').replace(/"/g, '&quot;')}">
+      </div>
+      <div>
+        <label class="form-label small mb-1">Document Link — PDF or web page <span class="text-danger">*</span></label>
+        <input name="extra_url_${idx}" class="form-control form-control-sm" required
+               placeholder="https://…"
+               value="${(url || '').replace(/"/g, '&quot;')}">
+      </div>
+    </div>`;
+  document.getElementById('extra-docs-container').appendChild(card);
+}
+
+// Pre-populate extra docs in edit mode
+{% for doc in extra_docs %}
+addExtraDoc({{ doc.label | tojson }}, {{ doc.url | tojson }});
+{% endfor %}
+
+// ── Search hint auto-sync ──────────────────────────────────────────────────
+(function () {
+  const hintEl = document.getElementById('manual-hint');
+  if (!hintEl) return;
+
+  function buildHint() {
+    const mfr = (document.getElementById('manufacturer')?.value || '').trim();
+    const mdl = (document.getElementById('model')?.value || '').trim();
+    if (!mfr) return '';
+    return [mfr, mdl, 'user manual PDF'].filter(Boolean).join(' ');
+  }
+
+  function syncHint() {
+    const current = hintEl.value.trim();
+    const lastAuto = hintEl.dataset.auto || '';
+    // Only update when the field is empty or still shows the last auto value
+    if (!current || current === lastAuto) {
+      const next = buildHint();
+      hintEl.value = next;
+      hintEl.dataset.auto = next;
+    }
+  }
+
+  document.getElementById('manufacturer')?.addEventListener('input', syncHint);
+  document.getElementById('model')?.addEventListener('input', syncHint);
+
+  // Seed on load (covers add mode where fields are pre-typed before opening docs)
+  syncHint();
+})();
+
+// ── Duplicate warning gate ─────────────────────────────────────────────────
+function _checkDupWarning() {
+  const warn = document.getElementById('dup-alert');
+  if (warn) {
+    warn.classList.remove('dup-flash');
+    void warn.offsetWidth; // reflow to restart animation
+    warn.classList.add('dup-flash');
+    warn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return false; // block submit
+  }
+  return true;
+}
+</script>

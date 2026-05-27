@@ -1,0 +1,156 @@
+{# Category Manager — loaded into #main-view via hamburger nav #}
+<div id="category-manager">
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="mb-0">Category Manager</h5>
+      <p class="text-muted small mb-0">Edit primary categories and rename secondary / tertiary values across the inventory.</p>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary"
+            hx-get="/views/inventory"
+            hx-target="#main-view"
+            hx-swap="innerHTML">
+      ← Inventory
+    </button>
+  </div>
+
+  <div class="row g-3">
+
+    <!-- ── Primary category list ──────────────────────────────────────────── -->
+    <div class="col-md-5">
+      <div class="card h-100">
+        <div class="card-header d-flex justify-content-between align-items-center py-2">
+          <span class="fw-semibold small text-uppercase" style="letter-spacing:.05em">Primary Categories</span>
+          <button class="btn btn-sm btn-outline-primary py-0 px-2" style="font-size:.72rem"
+                  onclick="document.getElementById('add-primary-section').style.display=''">
+            + Add
+          </button>
+        </div>
+
+        <!-- Add new primary form -->
+        <div id="add-primary-section" class="p-3 border-bottom" style="display:none">
+          <form hx-post="/tools/categories"
+                hx-target="#category-manager"
+                hx-swap="outerHTML">
+            <div class="row g-2 mb-2">
+              <div class="col-3">
+                <label class="form-label small mb-1">Icon</label>
+                <input name="icon" class="form-control form-control-sm text-center" placeholder="📦" maxlength="4">
+              </div>
+              <div class="col-4">
+                <label class="form-label small mb-1">Key <span class="text-muted">(slug)</span></label>
+                <input name="key" class="form-control form-control-sm" placeholder="my-category" required>
+              </div>
+              <div class="col-5">
+                <label class="form-label small mb-1">Label <span class="text-danger">*</span></label>
+                <input name="label" class="form-control form-control-sm" placeholder="My Category" required>
+              </div>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="electronic" id="add-elec" value="1" checked>
+              <label class="form-check-label small" for="add-elec">Electronic (shows Protocols & HA Integration in form)</label>
+            </div>
+            <div class="d-flex gap-2">
+              <button type="submit" class="btn btn-sm btn-primary flex-grow-1">Save</button>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      onclick="document.getElementById('add-primary-section').style.display='none'">Cancel</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Category list -->
+        <ul class="list-group list-group-flush" id="primary-cat-list">
+          {% for key, info in category_tree.items() %}
+          <li class="list-group-item d-flex align-items-center gap-2 py-2 px-3"
+              id="cat-row-{{ key }}"
+              style="cursor:pointer"
+              onclick="loadSecondaries('{{ key }}', this)">
+            <span style="font-size:1.1rem">{{ info.icon }}</span>
+            <span class="flex-grow-1 fw-semibold small">{{ info.label }}</span>
+            <span class="badge bg-secondary rounded-pill me-1" style="font-size:.6rem"
+                  title="{{ (secondaries.get(key) or {}) | length }} secondary values in use">
+              {{ (secondaries.get(key) or {}) | length }}
+            </span>
+            <!-- Edit inline toggle -->
+            <button class="btn btn-outline-secondary btn-sm py-0 px-1" style="font-size:.65rem"
+                    title="Edit"
+                    onclick="event.stopPropagation(); toggleEditRow('{{ key }}')"
+                    id="edit-btn-{{ key }}">✏</button>
+            <!-- Delete -->
+            <button class="btn btn-outline-danger btn-sm py-0 px-1" style="font-size:.65rem"
+                    title="Delete (does not update existing devices)"
+                    hx-delete="/tools/categories/{{ key }}"
+                    hx-target="#category-manager"
+                    hx-swap="outerHTML"
+                    hx-confirm="Delete '{{ info.label }}'? Existing devices keep their category value but it will no longer appear in the form dropdown."
+                    onclick="event.stopPropagation()">✕</button>
+          </li>
+          <!-- Inline edit row (hidden by default) -->
+          <li class="list-group-item p-2 px-3" id="edit-row-{{ key }}" style="display:none">
+            <form hx-post="/tools/categories/{{ key }}/edit"
+                  hx-target="#category-manager"
+                  hx-swap="outerHTML">
+              <div class="row g-2 align-items-end mb-2">
+                <div class="col-3">
+                  <label class="form-label small mb-1">Icon</label>
+                  <input name="icon" class="form-control form-control-sm text-center"
+                         value="{{ info.icon }}" maxlength="4">
+                </div>
+                <div class="col-9">
+                  <label class="form-label small mb-1">Label</label>
+                  <input name="label" class="form-control form-control-sm"
+                         value="{{ info.label }}" required>
+                </div>
+              </div>
+              <div class="form-check mb-2">
+                <input class="form-check-input" type="checkbox" name="electronic"
+                       id="edit-elec-{{ key }}" value="1"
+                       {% if info.get('electronic', True) %}checked{% endif %}>
+                <label class="form-check-label small" for="edit-elec-{{ key }}">Electronic</label>
+              </div>
+              <div class="d-flex gap-2">
+                <button type="submit" class="btn btn-sm btn-primary">Save</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        onclick="toggleEditRow('{{ key }}')">Cancel</button>
+              </div>
+            </form>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <!-- ── Secondary / tertiary panel ──────────────────────────────────────── -->
+    <div class="col-md-7">
+      <div id="secondary-panel">
+        <div class="card">
+          <div class="card-header py-2">
+            <span class="fw-semibold small text-uppercase" style="letter-spacing:.05em">Secondary &amp; Tertiary Values</span>
+          </div>
+          <div class="card-body text-center text-muted py-5">
+            <p class="small">Click a primary category to view its secondary values.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+function toggleEditRow(key) {
+  const editRow = document.getElementById('edit-row-' + key);
+  editRow.style.display = editRow.style.display === 'none' ? '' : 'none';
+}
+function loadSecondaries(key, rowEl) {
+  // Highlight active row
+  document.querySelectorAll('#primary-cat-list .list-group-item').forEach(el => {
+    el.classList.remove('active');
+  });
+  if (rowEl) rowEl.classList.add('active');
+  htmx.ajax('GET', '/tools/categories/' + key + '/secondaries', {
+    target: '#secondary-panel',
+    swap: 'innerHTML'
+  });
+}
+</script>

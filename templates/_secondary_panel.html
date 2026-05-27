@@ -1,0 +1,131 @@
+{# Secondary/tertiary value panel — injected into #secondary-panel #}
+<div class="card">
+  <div class="card-header py-2 d-flex justify-content-between align-items-center">
+    <span class="fw-semibold small">{{ info.icon }} {{ info.label }}</span>
+    <span class="text-muted small">
+      {{ secondaries | length }} secondary{% if tertiaries %}, {{ tertiaries | length }} tertiary{% endif %} value(s) in use
+    </span>
+  </div>
+  <div class="card-body p-0">
+
+    {% if rename_msg is defined %}
+    <div class="alert alert-success rounded-0 mb-0 py-2 px-3 small border-0 border-bottom">
+      ✓ {{ rename_msg }}
+      {% if (secondaries | length or tertiaries | length) %}— a Paperless retag task has been queued.{% endif %}
+    </div>
+    {% endif %}
+
+    <!-- ── Secondary values ────────────────────────────────────────────── -->
+    {% if secondaries %}
+    <div class="px-3 pt-3 pb-1">
+      <p class="small fw-semibold mb-2 text-uppercase" style="letter-spacing:.05em; font-size:.68rem">
+        Secondary values ({{ secondaries | length }})
+      </p>
+      <p class="text-muted" style="font-size:.72rem">
+        Edit a value and click Apply to rename it across all devices in this category.
+        Rename to an existing value to combine them.
+      </p>
+    </div>
+    <table class="table table-sm mb-0" style="font-size:.8rem">
+      <thead class="table-secondary">
+        <tr>
+          <th class="ps-3">Current value</th>
+          <th class="text-center" style="width:4rem">Devices</th>
+          <th style="width:42%">Rename to</th>
+          <th style="width:5rem"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sec, count in secondaries.items() | sort(attribute='0') %}
+        <tr>
+          <td class="ps-3 align-middle">{{ sec }}</td>
+          <td class="text-center align-middle text-muted">{{ count }}</td>
+          <td class="py-1">
+            <form hx-post="/tools/categories/{{ primary_key }}/secondaries/rename"
+                  hx-target="#secondary-panel"
+                  hx-swap="innerHTML"
+                  class="d-flex gap-1">
+              <input type="hidden" name="old_val" value="{{ sec }}">
+              <input type="hidden" name="field" value="secondary">
+              <input name="new_val" class="form-control form-control-sm" value="{{ sec }}" required>
+              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2 flex-shrink-0"
+                      style="font-size:.72rem">Apply</button>
+            </form>
+          </td>
+          <td></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="px-3 py-3 text-muted small">
+      No devices in <strong>{{ info.label }}</strong> have a secondary value set.
+    </div>
+    {% endif %}
+
+    <!-- ── Tertiary values (automotive, etc.) ──────────────────────────── -->
+    {% if tertiaries %}
+    <div class="px-3 pt-3 pb-1 border-top mt-2">
+      <p class="small fw-semibold mb-2 text-uppercase" style="letter-spacing:.05em; font-size:.68rem">
+        Tertiary values ({{ tertiaries | length }})
+      </p>
+    </div>
+    <table class="table table-sm mb-0" style="font-size:.8rem">
+      <thead class="table-secondary">
+        <tr>
+          <th class="ps-3">Current value</th>
+          <th class="text-center" style="width:4rem">Devices</th>
+          <th style="width:42%">Rename to</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ter, count in tertiaries.items() | sort(attribute='0') %}
+        <tr>
+          <td class="ps-3 align-middle">{{ ter }}</td>
+          <td class="text-center align-middle text-muted">{{ count }}</td>
+          <td class="py-1">
+            <form hx-post="/tools/categories/{{ primary_key }}/secondaries/rename"
+                  hx-target="#secondary-panel"
+                  hx-swap="innerHTML"
+                  class="d-flex gap-1">
+              <input type="hidden" name="old_val" value="{{ ter }}">
+              <input type="hidden" name="field" value="tertiary">
+              <input name="new_val" class="form-control form-control-sm" value="{{ ter }}" required>
+              <button type="submit" class="btn btn-sm btn-outline-primary py-0 px-2 flex-shrink-0"
+                      style="font-size:.72rem">Apply</button>
+            </form>
+          </td>
+          <td></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% endif %}
+
+    <!-- ── Suggested values from category definition ──────────────────── -->
+    {% if suggested or suggested_tertiaries %}
+    <div class="px-3 py-2 border-top">
+      <p class="small text-muted mb-1" style="font-size:.72rem">
+        Suggested values (from category definition — not enforced):
+      </p>
+      {% if suggested %}
+      <div class="d-flex flex-wrap gap-1 mb-1">
+        {% for s in suggested %}
+        <span class="badge bg-secondary" style="font-size:.65rem">{{ s }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% if suggested_tertiaries %}
+      <p class="small text-muted mb-1 mt-2" style="font-size:.72rem">Tertiary suggestions:</p>
+      <div class="d-flex flex-wrap gap-1">
+        {% for t in suggested_tertiaries %}
+        <span class="badge bg-secondary" style="font-size:.65rem">{{ t }}</span>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+  </div>
+</div>

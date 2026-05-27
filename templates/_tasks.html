@@ -1,0 +1,81 @@
+{# Tasks view — loaded into #main-view via hamburger nav #}
+<div id="tasks-view"
+  {% if any_running %}
+  hx-get="/views/tasks"
+  hx-trigger="every 3s"
+  hx-target="#main-view"
+  hx-swap="innerHTML"
+  {% endif %}>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h5 class="mb-0">Background Tasks</h5>
+      <p class="text-muted small mb-0">Document uploads, PDF fetches, and Paperless retagging appear here.</p>
+    </div>
+    <div class="d-flex gap-2">
+      {% if tasks %}
+      <button class="btn btn-sm btn-outline-danger"
+              hx-post="/views/tasks/clear"
+              hx-target="#main-view"
+              hx-swap="innerHTML">
+        Clear Completed
+      </button>
+      {% endif %}
+      <button class="btn btn-sm btn-outline-secondary"
+              hx-get="/views/inventory"
+              hx-target="#main-view"
+              hx-swap="innerHTML">
+        ← Inventory
+      </button>
+    </div>
+  </div>
+
+  {% if not tasks %}
+  <div class="text-center text-muted py-5">
+    <div style="font-size:2.5rem">✅</div>
+    <p class="mt-2 mb-0">No tasks yet.</p>
+  </div>
+  {% else %}
+  <div class="list-group">
+    {% for task in tasks %}
+    <div class="list-group-item flex-column align-items-start p-3">
+      <div class="d-flex w-100 justify-content-between align-items-start mb-1">
+        <div class="d-flex align-items-center gap-2 flex-wrap">
+          {% if task.status == 'running' %}
+          <span class="spinner-border spinner-border-sm text-primary" style="width:.85rem;height:.85rem;flex-shrink:0"></span>
+          {% elif task.status == 'success' %}
+          <span class="text-success fw-bold">✓</span>
+          {% else %}
+          <span class="text-danger fw-bold">✗</span>
+          {% endif %}
+          <span class="fw-semibold small">{{ task.label }}</span>
+          <span class="badge rounded-pill ms-1
+            {% if task.type == 'upload' %}bg-primary
+            {% elif task.type == 'retag' %}bg-warning text-dark
+            {% else %}bg-secondary{% endif %}"
+            style="font-size:.62rem">{{ task.type }}</span>
+          {% if task.status == 'running' %}
+          <span class="badge bg-primary" style="font-size:.62rem">running</span>
+          {% elif task.status == 'error' %}
+          <span class="badge bg-danger" style="font-size:.62rem">failed</span>
+          {% endif %}
+        </div>
+        <small class="text-muted flex-shrink-0 ms-2">{{ task.created_at.strftime('%H:%M:%S') }}</small>
+      </div>
+      {% if task.log %}
+      <div class="ms-3 mt-1 font-monospace text-muted" style="font-size:.72rem; line-height:1.5">
+        {% set show = task.log[-8:] %}
+        {% if task.log | length > 8 %}
+        <div class="text-muted" style="opacity:.6">… {{ task.log | length - 8 }} earlier line(s)</div>
+        {% endif %}
+        {% for line in show %}
+        <div class="{% if loop.last and task.status == 'error' %}text-danger{% elif loop.last and task.status == 'success' %}text-success{% endif %}">{{ line }}</div>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+</div>

@@ -1,0 +1,256 @@
+<div id="settings-content">
+<div class="container-fluid py-3" style="max-width:860px">
+
+  <div class="d-flex align-items-center gap-3 mb-4">
+    <h4 class="mb-0">⚙ Search Settings</h4>
+  </div>
+
+  {# ── Active search order ───────────────────────────────────────────────── #}
+  <div class="card mb-4">
+    <div class="card-body py-3">
+      <h6 class="card-title text-muted mb-2" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.06em">
+        Active search order
+      </h6>
+      <ol class="mb-0 ps-3" style="font-size:.85rem;line-height:2">
+        <li><span class="text-muted">Manufacturer direct</span> <span class="badge bg-secondary ms-1" style="font-size:.65rem">free</span></li>
+        <li><span class="text-muted">Archive.org CDX</span> <span class="badge bg-secondary ms-1" style="font-size:.65rem">free</span></li>
+        <li><span class="text-muted">Google HTML scraping</span> <span class="badge bg-secondary ms-1" style="font-size:.65rem">free</span></li>
+        <li><span class="text-muted">DuckDuckGo (filetype:pdf)</span> <span class="badge bg-secondary ms-1" style="font-size:.65rem">free</span></li>
+        <li><span class="text-muted">DuckDuckGo (broad)</span> <span class="badge bg-secondary ms-1" style="font-size:.65rem">free</span></li>
+        {% for p in providers %}
+          {% if p.configured %}
+          <li>
+            <strong>{{ p.name }}</strong>
+            {% if p.at_limit and not p.allow_paid %}
+            <span class="badge bg-danger ms-1" style="font-size:.65rem">⏸ Paused — limit reached</span>
+            <span class="text-muted small ms-1">resets {{ p.rollover }}</span>
+            {% elif p.at_limit and p.allow_paid %}
+            <span class="badge bg-warning text-dark ms-1" style="font-size:.65rem">💳 Paid</span>
+            {% else %}
+            <span class="badge bg-success ms-1" style="font-size:.65rem">Active</span>
+            {% endif %}
+          </li>
+          {% endif %}
+        {% endfor %}
+      </ol>
+    </div>
+  </div>
+
+  {# ── Provider cards ────────────────────────────────────────────────────── #}
+  {% for p in providers %}
+  <div class="card mb-3 {% if p.configured and p.at_limit and not p.allow_paid %}border-danger{% endif %}">
+    <div class="card-body">
+
+      {# Header row #}
+      <div class="d-flex justify-content-between align-items-start mb-1">
+        <div>
+          <h6 class="card-title mb-0 d-flex align-items-center gap-2">
+            {{ p.name }}
+            {% if p.configured %}
+              {% if p.at_limit and not p.allow_paid %}
+              <span class="badge bg-danger" style="font-size:.65rem">⏸ Paused</span>
+              {% elif p.at_limit and p.allow_paid %}
+              <span class="badge bg-warning text-dark" style="font-size:.65rem">💳 Paid mode</span>
+              {% else %}
+              <span class="badge bg-success" style="font-size:.65rem">Active</span>
+              {% endif %}
+            {% else %}
+            <span class="badge bg-secondary" style="font-size:.65rem">Not configured</span>
+            {% endif %}
+          </h6>
+          <small class="text-muted">{{ p.description }}</small>
+        </div>
+        <div class="d-flex gap-2 flex-shrink-0 ms-3">
+          {% if p.configured and p.get('usage_url') %}
+          <a href="{{ p.usage_url }}" target="_blank" rel="noopener"
+             class="btn btn-sm btn-outline-primary">Usage portal ↗</a>
+          {% endif %}
+          <a href="{{ p.signup_url }}" target="_blank" rel="noopener"
+             class="btn btn-sm btn-outline-secondary">Sign up ↗</a>
+        </div>
+      </div>
+
+      <p class="small text-muted mb-3" style="font-size:.78rem">{{ p.notes }}</p>
+
+      {# ── Usage section (configured providers only) ── #}
+      {% if p.configured %}
+      <div class="mb-3 p-3 rounded" style="background:rgba(255,255,255,.04)">
+
+        {# Paused / limit-reached alert #}
+        {% if p.at_limit and not p.allow_paid %}
+        <div class="alert alert-danger py-2 px-3 mb-3 small" role="alert">
+          <strong>Free limit reached.</strong>
+          This provider is paused until <strong>{{ p.rollover }}</strong>
+          {% if p.days_until_reset is not none %}({{ p.days_until_reset }} day{{ 's' if p.days_until_reset != 1 else '' }}){% endif %}.
+          Searches are falling through to the next available stage.
+          Enable paid usage below to continue using this provider.
+        </div>
+        {% endif %}
+
+        {# Usage numbers row #}
+        <div class="d-flex justify-content-between align-items-end mb-1" style="font-size:.82rem">
+          <span class="text-muted">{{ p.period_label }}</span>
+          <div class="text-end">
+            <span class="{{ 'text-danger fw-semibold' if p.usage_pct >= 100 else 'text-warning' if p.usage_pct >= 80 else '' }}">
+              {{ p.display_used }} / {{ "{:,}".format(p.free_limit) }}
+            </span>
+            <span class="text-muted ms-2" style="font-size:.75rem">
+              ({{ p.display_remaining }} remaining)
+            </span>
+          </div>
+        </div>
+
+        {# Progress bar #}
+        <div class="progress mb-2" style="height:6px">
+          <div class="progress-bar {{ p.usage_class }}"
+               style="width:{{ p.usage_pct }}%;transition:width .4s"></div>
+        </div>
+
+        {# Source + reset info #}
+        <div class="d-flex justify-content-between align-items-center" style="font-size:.72rem">
+          <span class="text-muted d-flex align-items-center gap-2">
+            {% if p.source == 'server' %}
+            ✓ From {{ p.name }} API headers
+            {% else %}
+            ⚠ Local estimate
+            {% endif %}
+            <button type="button"
+                    hx-post="/tools/settings/search/{{ p.id }}/sync-usage"
+                    hx-target="#settings-content"
+                    hx-swap="outerHTML"
+                    hx-indicator="#sync-spinner-{{ p.id }}"
+                    class="btn btn-link p-0 text-primary" style="font-size:.72rem">
+              ↻ Sync usage
+              <span id="sync-spinner-{{ p.id }}" class="htmx-indicator spinner-border spinner-border-sm ms-1" role="status"></span>
+            </button>
+          </span>
+          <span class="text-muted">
+            Resets <strong>{{ p.rollover }}</strong>
+            {% if p.days_until_reset == 0 %}(today)
+            {% elif p.days_until_reset == 1 %}(tomorrow)
+            {% elif p.days_until_reset is not none %}({{ p.days_until_reset }} days)
+            {% endif %}
+          </span>
+        </div>
+
+        {# History #}
+        {% if p.history %}
+        <details class="mt-2">
+          <summary class="text-muted" style="font-size:.75rem;cursor:pointer">Daily history</summary>
+          <table class="table table-sm table-borderless mt-1 mb-0" style="font-size:.75rem">
+            {% for day, count in p.history.items() %}
+            <tr>
+              <td class="text-muted py-0">{{ day }}</td>
+              <td class="py-0">{{ count }} call{{ 's' if count != 1 else '' }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </details>
+        {% endif %}
+
+      </div>
+      {% endif %}
+
+      {# ── Key form ── #}
+      <form hx-post="/tools/settings/search/{{ p.id }}"
+            hx-target="#settings-content"
+            hx-swap="outerHTML">
+
+        {% for field in p.fields %}
+        <div class="mb-2">
+          <label class="form-label small mb-1">{{ field.label }}</label>
+          <input type="{{ field.type }}"
+                 name="{{ field.name }}"
+                 class="form-control form-control-sm font-monospace"
+                 autocomplete="off"
+                 {% if field.type == 'password' %}
+                 placeholder="{{ '●●●● (saved — leave blank to keep)' if p.cfg.get(field.name) else 'Paste key here…' }}"
+                 {% elif p.cfg.get(field.name) %}
+                 value="{{ p.cfg[field.name] }}"
+                 {% endif %}>
+        </div>
+        {% endfor %}
+
+        {# Allow paid checkbox (only for providers that support it) #}
+        {% if p.get('has_paid_option') and p.configured %}
+        <div class="form-check mt-3 mb-1">
+          <input class="form-check-input" type="checkbox" name="allow_paid"
+                 id="allow-paid-{{ p.id }}"
+                 value="1"
+                 {{ 'checked' if p.allow_paid else '' }}>
+          <label class="form-check-label small" for="allow-paid-{{ p.id }}">
+            Allow usage beyond free tier
+            <span class="text-warning fw-semibold">— charges will apply</span>
+          </label>
+        </div>
+        <div class="text-muted mb-3" style="font-size:.75rem;padding-left:1.6rem">
+          When unchecked, searches stop at {{ "{:,}".format(p.free_limit) }} {{ p.period_label.lower() }}
+          and fall through to the next search stage until the limit resets.
+        </div>
+        {% endif %}
+
+        <div class="d-flex gap-2 mt-2">
+          <button type="submit" class="btn btn-sm btn-primary">Save</button>
+          {% if p.configured %}
+          <button type="button" class="btn btn-sm btn-outline-danger"
+                  hx-delete="/tools/settings/search/{{ p.id }}"
+                  hx-target="#settings-content"
+                  hx-swap="outerHTML"
+                  hx-confirm="Remove API key for {{ p.name }}?">
+            Remove key
+          </button>
+          {% endif %}
+        </div>
+      </form>
+
+    </div>
+  </div>
+  {% endfor %}
+
+  {# ── Always-on free stages ─────────────────────────────────────────────── #}
+  <div class="card border-secondary">
+    <div class="card-body py-3">
+      <h6 class="card-title text-muted mb-2" style="font-size:.75rem;text-transform:uppercase;letter-spacing:.06em">
+        Always-on free stages
+      </h6>
+      <div class="row g-2">
+        <div class="col-md-6">
+          <div class="p-2 rounded" style="background:rgba(255,255,255,.04)">
+            <div class="fw-semibold small">Manufacturer direct</div>
+            <div class="text-muted" style="font-size:.78rem">
+              DDG <code>site:{brand}.com</code> search — highly targeted, zero API cost.
+              Requires a model number on the device.
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="p-2 rounded" style="background:rgba(255,255,255,.04)">
+            <div class="fw-semibold small">Archive.org CDX</div>
+            <div class="text-muted" style="font-size:.78rem">
+              Wayback Machine PDF index for manufacturer URLs. Useful for finding
+              URL patterns on sites that have reorganised.
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="p-2 rounded" style="background:rgba(255,255,255,.04)">
+            <div class="fw-semibold small">Google HTML scraping</div>
+            <div class="text-muted" style="font-size:.78rem">
+              High-quality index but fragile — silently returns nothing when rate-limited.
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="p-2 rounded" style="background:rgba(255,255,255,.04)">
+            <div class="fw-semibold small">DuckDuckGo scraping</div>
+            <div class="text-muted" style="font-size:.78rem">
+              Stable HTML endpoint, two passes: <code>filetype:pdf</code> then broad.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>

@@ -1,0 +1,149 @@
+{# Renders doc status badges for one device. Polls while fetch is running. #}
+{% set is_fetching = device.get('_fetching', False) %}
+{% set doc_label = {'manual': 'M', 'quickstart': 'QS', 'datasheet': 'DS'} %}
+<div id="doc-status-{{ device.id }}"
+  {% if is_fetching %}
+  hx-get="/devices/{{ device.id }}/doc-status"
+  hx-trigger="every 2s"
+  hx-swap="outerHTML"
+  {% endif %}
+  class="d-flex flex-wrap gap-1 align-items-center">
+
+  {% for doc in (device.get('docs') or []) %}
+    {% set st = doc.get('fetch_status', 'none') %}
+    {% set lbl = doc_label.get(doc.type) or ((doc.label or doc.type) | replace('-',' ') | title)[:4] %}
+
+    {% set _meta_title = doc.type ~ ((' — ' ~ doc.pdf_version) if doc.get('pdf_version') else '') ~ ((' [' ~ doc.pdf_mod_date ~ ']') if doc.get('pdf_mod_date') else '') %}
+    {% if st == 'success' and doc.get('paperless_id') and paperless_url %}
+      <a href="{{ paperless_url }}/documents/{{ doc.paperless_id }}/preview/"
+         target="_blank"
+         title="{{ _meta_title }} — open in Paperless"
+         class="doc-badge doc-badge-success clickable">{{ lbl }} ✓</a>
+    {% elif st == 'success' %}
+      {# No Paperless ID — link to locally-served PDF if available #}
+      <a href="/devices/{{ device.id }}/docs/{{ doc.type }}/pdf"
+         target="_blank"
+         title="{{ _meta_title }} — open local PDF"
+         class="doc-badge doc-badge-success clickable">{{ lbl }} ✓</a>
+    {% elif st == 'pending' %}
+      <span class="doc-badge doc-badge-queued"
+            title="{{ doc.type }}: queued — click ↺ to fetch">{{ lbl }}</span>
+    {% elif st in ('searching', 'downloading', 'uploading') %}
+      <span class="doc-badge doc-badge-active"
+            title="{{ doc.type }}: {{ st }}…">
+        <span class="spinner-border spinner-border-sm me-1"
+              style="width:.55rem;height:.55rem;border-width:2px"></span>{{ lbl }}
+      </span>
+    {% elif st == 'not_found' %}
+      <span class="doc-badge doc-badge-notfound clickable"
+            title="{{ doc.get('fetch_error', 'Not found') }} — click to provide"
+            onclick="openProvideUrl('{{ device.id }}', '{{ doc.type }}')">
+        {{ lbl }} ?
+      </span>
+    {% elif st == 'error' %}
+      <span class="doc-badge doc-badge-error clickable"
+            title="{{ doc.get('fetch_error', 'Error') }} — click to provide manually"
+            onclick="openProvideUrl('{{ device.id }}', '{{ doc.type }}')">
+        {{ lbl }} !
+      </span>
+    {% else %}
+      <span class="doc-badge doc-badge-queued" style="opacity:.5"
+            title="{{ doc.type }}: not yet fetched">{{ lbl }}</span>
+    {% endif %}
+  {% endfor %}
+
+  {# Fetch / re-fetch button #}
+  {% if device.get('docs') and not is_fetching %}
+  <button class="btn btn-outline-secondary fetch-btn ms-1"
+          hx-post="/devices/{{ device.id }}/fetch"
+          hx-target="#device-list"
+          title="Fetch documents now">↺ Fetch</button>
+  {% endif %}
+
+  {# Per-doc update-check buttons (only for successfully fetched docs with a source URL) #}
+  {% if not is_fetching %}
+    {% for doc in (device.get('docs') or []) %}
+      {% if doc.get('fetch_status') == 'success' and doc.get('source_url') %}
+      <button class="btn btn-outline-info update-btn"
+              onclick="openUpdateModal('{{ device.id }}', '{{ doc.type }}')"
+              title="Check for {{ doc.type }} update">
+        {{ doc_label.get(doc.type) or ((doc.label or doc.type) | replace('-',' ') | title)[:4] }} ↻
+      </button>
+      {% endif %}
+    {% endfor %}
+  {% endif %}
+
+  {# Check Paperless button — shown when Paperless is configured and at least one doc is unresolved #}
+  {% if not is_fetching and paperless_url %}
+    {% set ns = namespace(has_unresolved=false) %}
+    {% for doc in (device.get('docs') or []) %}
+      {% if doc.get('fetch_status') in ('error', 'not_found', 'pending') %}{% set ns.has_unresolved = true %}{% endif %}
+    {% endfor %}
+    {% if ns.has_unresolved %}
+    <button class="btn btn-outline-secondary btn-sm ms-1"
+            hx-post="/devices/{{ device.id }}/sync-paperless"
+            hx-target="#doc-status-{{ device.id }}"
+            hx-swap="outerHTML"
+            title="Check Paperless for existing documents for this device">
+      🔍 Check Paperless
+    </button>
+    {% endif %}
+  {% endif %}
+
+  {# Sync-from-Paperless result banner #}
+  {% if sync_result is defined %}
+    {% if sync_result.get('note') %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">Paperless</span>
+      <span class="small ms-1">{{ sync_result.note }}</span>
+    </div>
+    {% elif sync_result.matched > 0 %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-success">Linked</span>
+      <span class="small ms-1">Found and linked {{ sync_result.matched }} document(s) from Paperless.</span>
+    </div>
+    {% elif sync_result.total == 0 %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">Not found</span>
+      <span class="small ms-1">No documents for this device found in Paperless.</span>
+    </div>
+    {% else %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">No match</span>
+      <span class="small ms-1">{{ sync_result.total }} document(s) in Paperless but titles didn't match — check manually.</span>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  {# Update result banner (shown after a check-update call) #}
+  {% if update_result is defined %}
+    {% set r = update_result %}
+    {% if r.result == 'updated' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-success">Updated</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'unchanged' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">No update</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'metadata_match' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">Republish</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'no_version_info' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">No version info</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% elif r.result == 'error' %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-danger">Error</span>
+      <span class="small ms-1">{{ r.detail }}</span>
+    </div>
+    {% endif %}
+  {% endif %}
+
+</div>
