@@ -1,13 +1,20 @@
 services:
   inventory-manager:
     build: .
-    image: inventory-manager:latest
+    image: inventory-manager:1.1
     container_name: inventory-manager
     volumes:
-      - /mnt/zfs-acd-01/apps/inventory-manager:/app
-      - /mnt/zfs-acd-01/media/docs/inventory:/data
+      # App source — path where you sync/clone the inventory-manager files
+      - /path/to/apps/inventory-manager:/app
+      # Data volume — stores devices.yaml, config.yaml, and downloaded PDFs
+      - /path/to/data/inventory:/data
+    ports:
+      - "7070:7070"
     environment:
       - DATA_DIR=/data
-      - PAPERLESS_URL=http://10.250.0.240:30070
+      - PAPERLESS_URL=${PAPERLESS_URL}
       - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+      # Optional: enable HA import tool
+      - HA_URL=${HA_URL:-}
+      - HA_TOKEN=${HA_TOKEN:-}
     restart: unless-stopped

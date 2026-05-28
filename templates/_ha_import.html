@@ -1,0 +1,20 @@
+<!-- Initial state shown when the HA import drawer opens -->
+<div id="ha-import-content">
+  <p class="small text-muted mb-2">
+    Fetches all physical devices from Home Assistant. Devices already in your
+    inventory (matched by manufacturer + model) and previously ignored devices
+    are excluded automatically.
+  </p>
+  <p class="small text-muted mb-3">
+    Only one entry per model is imported — multiple instances of the same device
+    share a single manual.
+  </p>
+  <button class="btn btn-primary w-100"
+          hx-post="/tools/ha-fetch"
+          hx-target="#ha-import-content"
+          hx-swap="outerHTML"
+          hx-indicator="#ha-fetch-spinner">
+    <span class="htmx-indicator spinner-border spinner-border-sm me-1" id="ha-fetch-spinner"></span>
+    Fetch Devices from Home Assistant
+  </button>
+</div>

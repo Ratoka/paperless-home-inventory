@@ -11,21 +11,25 @@
 
   {% for doc in (device.get('docs') or []) %}
     {% set st = doc.get('fetch_status', 'none') %}
-    {% set lbl = doc_label.get(doc.type, doc.type[:2].upper()) %}
+    {% set lbl = doc_label.get(doc.type) or ((doc.label or doc.type) | replace('-',' ') | title)[:4] %}
 
+    {% set _meta_title = doc.type ~ ((' — ' ~ doc.pdf_version) if doc.get('pdf_version') else '') ~ ((' [' ~ doc.pdf_mod_date ~ ']') if doc.get('pdf_mod_date') else '') %}
     {% if st == 'success' and doc.get('paperless_id') and paperless_url %}
       <a href="{{ paperless_url }}/documents/{{ doc.paperless_id }}/preview/"
          target="_blank"
-         title="{{ doc.type }} — open in Paperless{% if doc.get('pdf_version') %} ({{ doc.pdf_version }}){% endif %}{% if doc.get('pdf_mod_date') %} [{{ doc.pdf_mod_date }}]{% endif %}"
+         title="{{ _meta_title }} — open in Paperless"
          class="doc-badge doc-badge-success clickable">{{ lbl }} ✓</a>
     {% elif st == 'success' %}
-      {# Paperless not configured or ID not yet resolved #}
-      <span class="doc-badge doc-badge-success"
-            title="{{ doc.type }}{% if doc.get('pdf_version') %} — {{ doc.pdf_version }}{% endif %}{% if doc.get('pdf_mod_date') %} [{{ doc.pdf_mod_date }}]{% endif %}">
-        {{ lbl }} ✓
-      </span>
-    {% elif st in ('pending', 'searching', 'downloading', 'uploading') %}
-      <span class="doc-badge doc-badge-pending"
+      {# No Paperless ID — link to locally-served PDF if available #}
+      <a href="/devices/{{ device.id }}/docs/{{ doc.type }}/pdf"
+         target="_blank"
+         title="{{ _meta_title }} — open local PDF"
+         class="doc-badge doc-badge-success clickable">{{ lbl }} ✓</a>
+    {% elif st == 'pending' %}
+      <span class="doc-badge doc-badge-queued"
+            title="{{ doc.type }}: queued — click ↺ to fetch">{{ lbl }}</span>
+    {% elif st in ('searching', 'downloading', 'uploading') %}
+      <span class="doc-badge doc-badge-active"
             title="{{ doc.type }}: {{ st }}…">
         <span class="spinner-border spinner-border-sm me-1"
               style="width:.55rem;height:.55rem;border-width:2px"></span>{{ lbl }}
@@ -43,17 +47,17 @@
         {{ lbl }} !
       </span>
     {% else %}
-      <span class="doc-badge doc-badge-pending" style="opacity:.4"
+      <span class="doc-badge doc-badge-queued" style="opacity:.5"
             title="{{ doc.type }}: not yet fetched">{{ lbl }}</span>
     {% endif %}
   {% endfor %}
 
   {# Fetch / re-fetch button #}
   {% if device.get('docs') and not is_fetching %}
-  <button class="btn btn-outline-secondary update-btn ms-1"
+  <button class="btn btn-outline-secondary fetch-btn ms-1"
           hx-post="/devices/{{ device.id }}/fetch"
           hx-target="#device-list"
-          title="Re-fetch all documents">↺</button>
+          title="Fetch documents now">↺ Fetch</button>
   {% endif %}
 
   {# Per-doc update-check buttons (only for successfully fetched docs with a source URL) #}
@@ -63,10 +67,52 @@
       <button class="btn btn-outline-info update-btn"
               onclick="openUpdateModal('{{ device.id }}', '{{ doc.type }}')"
               title="Check for {{ doc.type }} update">
-        {{ doc_label.get(doc.type, doc.type[:2].upper()) }} ↻
+        {{ doc_label.get(doc.type) or ((doc.label or doc.type) | replace('-',' ') | title)[:4] }} ↻
       </button>
       {% endif %}
     {% endfor %}
+  {% endif %}
+
+  {# Check Paperless button — shown when Paperless is configured and at least one doc is unresolved #}
+  {% if not is_fetching and paperless_url %}
+    {% set ns = namespace(has_unresolved=false) %}
+    {% for doc in (device.get('docs') or []) %}
+      {% if doc.get('fetch_status') in ('error', 'not_found', 'pending') %}{% set ns.has_unresolved = true %}{% endif %}
+    {% endfor %}
+    {% if ns.has_unresolved %}
+    <button class="btn btn-outline-secondary btn-sm ms-1"
+            hx-post="/devices/{{ device.id }}/sync-paperless"
+            hx-target="#doc-status-{{ device.id }}"
+            hx-swap="outerHTML"
+            title="Check Paperless for existing documents for this device">
+      🔍 Check Paperless
+    </button>
+    {% endif %}
+  {% endif %}
+
+  {# Sync-from-Paperless result banner #}
+  {% if sync_result is defined %}
+    {% if sync_result.get('note') %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-secondary">Paperless</span>
+      <span class="small ms-1">{{ sync_result.note }}</span>
+    </div>
+    {% elif sync_result.matched > 0 %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-success">Linked</span>
+      <span class="small ms-1">Found and linked {{ sync_result.matched }} document(s) from Paperless.</span>
+    </div>
+    {% elif sync_result.total == 0 %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">Not found</span>
+      <span class="small ms-1">No documents for this device found in Paperless.</span>
+    </div>
+    {% else %}
+    <div class="w-100 mt-1">
+      <span class="badge bg-warning text-dark">No match</span>
+      <span class="small ms-1">{{ sync_result.total }} document(s) in Paperless but titles didn't match — check manually.</span>
+    </div>
+    {% endif %}
   {% endif %}
 
   {# Update result banner (shown after a check-update call) #}

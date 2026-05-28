@@ -1,0 +1,117 @@
+<!-- Replaces #ha-import-content after a successful /tools/ha-fetch call -->
+<div id="ha-import-content">
+
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <span class="small fw-semibold">{{ ha_devices | length }} importable device{{ 's' if ha_devices | length != 1 else '' }}</span>
+    <span class="small text-muted">{{ skipped_count }} skipped (already added or ignored)</span>
+  </div>
+
+  {% if ha_devices %}
+  <input type="text" class="form-control form-control-sm mb-2"
+         placeholder="Filter list…" autocomplete="off"
+         oninput="filterHaList(this.value)">
+
+  <form hx-post="/tools/ha-import/execute"
+        hx-target="#device-list"
+        hx-on:htmx:after-request="if(event.detail.successful) document.body.dispatchEvent(new Event('deviceSaved'))">
+
+    <div class="d-flex align-items-center gap-2 mb-1 px-1 small">
+      <input type="checkbox" id="ha-sel-all"
+             onchange="document.querySelectorAll('.ha-cb').forEach(cb => { cb.checked = this.checked; }); _haCountSel();">
+      <label for="ha-sel-all" class="mb-0 user-select-none">Select all</label>
+      <span class="ms-auto text-muted" id="ha-sel-count">0 selected</span>
+    </div>
+
+    <div style="max-height:52vh; overflow-y:auto" class="border rounded mb-2">
+      <table class="table table-sm table-hover mb-0" style="font-size:.8rem">
+        <thead class="table-secondary" style="position:sticky;top:0">
+          <tr>
+            <th style="width:2rem"></th>
+            <th>Name / Manufacturer</th>
+            <th>Model</th>
+            <th>Area</th>
+            <th>Protocol</th>
+            <th style="width:5rem"></th>
+          </tr>
+        </thead>
+        <tbody id="ha-device-tbody">
+          {% for d in ha_devices %}
+          <tr class="ha-row"
+              data-search="{{ [d.name, d.manufacturer, d.model, d.area, d.domain] | join(' ') | lower }}">
+            <td>
+              <input type="checkbox" name="ha_ids" value="{{ d.ha_id }}"
+                     class="ha-cb" onchange="_haCountSel()">
+            </td>
+            <td>
+              <div class="fw-semibold">{{ d.name }}</div>
+              {% if d.manufacturer %}
+              <div class="text-muted" style="font-size:.72rem">{{ d.manufacturer }}</div>
+              {% endif %}
+            </td>
+            <td class="font-monospace text-muted small">{{ d.model or '—' }}</td>
+            <td class="text-muted small">{{ d.area or '—' }}</td>
+            <td>
+              {% if d.domain %}
+              <span class="proto-pill">{{ d.domain }}</span>
+              {% else %}
+              <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+            <td>
+              <button type="button"
+                      class="btn btn-outline-secondary btn-sm py-0 px-1"
+                      style="font-size:.7rem; line-height:1.4"
+                      hx-post="/tools/ha-ignore"
+                      hx-vals="{{ {'ha_id': d.ha_id, 'name': d.name, 'manufacturer': d.manufacturer, 'model': d.model} | tojson | e }}"
+                      hx-target="closest tr"
+                      hx-swap="delete"
+                      title="Never suggest this device again">
+                Ignore
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="d-flex gap-2">
+      <button type="submit" id="ha-import-btn" class="btn btn-primary flex-grow-1" disabled>
+        Import Selected
+      </button>
+      <button type="button" class="btn btn-outline-secondary" onclick="closeDrawer()">Cancel</button>
+    </div>
+
+  </form>
+
+  {% else %}
+  <div class="text-center text-muted py-4">
+    <p class="mb-1">No importable devices found.</p>
+    <p class="small mb-0">All HA physical devices are already in your inventory or on the ignore list.</p>
+  </div>
+  <button type="button" class="btn btn-outline-secondary w-100 mt-2" onclick="closeDrawer()">Close</button>
+  {% endif %}
+
+</div>
+
+<script>
+function filterHaList(q) {
+  q = q.toLowerCase();
+  document.querySelectorAll('#ha-device-tbody .ha-row').forEach(row => {
+    row.style.display = !q || (row.dataset.search || '').includes(q) ? '' : 'none';
+  });
+}
+function _haCountSel() {
+  const n = document.querySelectorAll('.ha-cb:checked').length;
+  const cnt = document.getElementById('ha-sel-count');
+  if (cnt) cnt.textContent = n + ' selected';
+  const btn = document.getElementById('ha-import-btn');
+  if (btn) btn.disabled = n === 0;
+  const all = document.getElementById('ha-sel-all');
+  if (all) {
+    const total = document.querySelectorAll('.ha-cb').length;
+    all.indeterminate = n > 0 && n < total;
+    all.checked = total > 0 && n === total;
+  }
+}
+</script>

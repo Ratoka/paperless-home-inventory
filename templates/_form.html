@@ -12,6 +12,7 @@ function onPrimaryChange() {
   const secList   = document.getElementById('secondary-options');
   const tertWrap  = document.getElementById('tertiary-wrap');
   const tertSel   = document.getElementById('cat_tertiary');
+  document.getElementById('form-details').style.display = primary ? '' : 'none';
 
   // Update datalist options for secondary
   secList.innerHTML = '';
@@ -41,6 +42,13 @@ function onPrimaryChange() {
     tertWrap.style.display = 'none';
     tertSel.value = '';
   }
+
+  // Show Protocols and HA Integration only for electronic categories
+  const showElec = info.electronic !== false;
+  const protosWrap = document.getElementById('protocols-wrap');
+  const integWrap  = document.getElementById('integration-wrap');
+  if (protosWrap) protosWrap.style.display = showElec ? '' : 'none';
+  if (integWrap)  integWrap.style.display  = showElec ? '' : 'none';
 }
 </script>
 
@@ -51,7 +59,7 @@ function onPrimaryChange() {
     hx-post="/devices"
   {% endif %}
   hx-target="#device-list"
-  hx-on:htmx:after-request="if(event.detail.successful) document.body.dispatchEvent(new Event('deviceSaved'))"
+  hx-on:htmx:after-request="if(event.detail.successful && event.target === this) document.body.dispatchEvent(new Event('deviceSaved'))"
   autocomplete="off">
 
   <!-- ── Identity ────────────────────────────────────────────── -->
@@ -59,7 +67,13 @@ function onPrimaryChange() {
     <label class="form-label fw-semibold">Device Name <span class="text-danger">*</span></label>
     <input id="name" name="name" class="form-control" required
            placeholder="Samsung 85&quot; QLED TV"
-           value="{{ d.get('name','') }}">
+           value="{{ d.get('name','') }}"
+           {% if not is_edit %}
+           hx-get="/devices/check-duplicate"
+           hx-trigger="blur changed"
+           hx-include="#name,#model"
+           hx-target="#duplicate-warning"
+           {% endif %}>
   </div>
 
   <div class="row g-2 mb-2">
@@ -71,9 +85,19 @@ function onPrimaryChange() {
     <div class="col">
       <label class="form-label fw-semibold">Model</label>
       <input id="model" name="model" class="form-control"
-             placeholder="QN85QN90AAFXZA" value="{{ d.get('model','') }}">
+             placeholder="QN85QN90AAFXZA" value="{{ d.get('model','') }}"
+             {% if not is_edit %}
+             hx-get="/devices/check-duplicate"
+             hx-trigger="blur changed"
+             hx-include="#name,#model"
+             hx-target="#duplicate-warning"
+             {% endif %}>
     </div>
   </div>
+
+  {% if not is_edit %}
+  <div id="duplicate-warning" class="mb-2"></div>
+  {% endif %}
 
   <!-- ── Product Validation ────────────────────────────────── -->
   <div class="mb-3">
@@ -106,6 +130,8 @@ function onPrimaryChange() {
     </select>
   </div>
 
+  <div id="form-details" style="display:{% if cat_primary %}block{% else %}none{% endif %}">
+
   <div class="mb-2">
     <label class="form-label fw-semibold">Secondary</label>
     <input id="cat_secondary" name="cat_secondary" class="form-control"
@@ -125,7 +151,7 @@ function onPrimaryChange() {
   <hr class="my-3">
 
   <!-- ── Classification ───────────────────────────────────── -->
-  <div class="mb-3">
+  <div id="protocols-wrap" class="mb-3">
     <label class="form-label fw-semibold">Protocols</label>
     <div class="d-flex flex-wrap gap-2">
       {% for p in protocols %}
@@ -139,28 +165,27 @@ function onPrimaryChange() {
     </div>
   </div>
 
-  <div class="row g-2 mb-3">
-    <div class="col">
-      <label class="form-label fw-semibold">HA Integration</label>
-      <select name="integration" class="form-select form-select-sm">
-        <option value="">— none —</option>
-        {% for integ in integrations %}
-        <option value="{{ integ }}" {% if d.get('integration') == integ %}selected{% endif %}>
-          {{ integ }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="col">
-      <label class="form-label fw-semibold">Status</label>
-      <select name="status" class="form-select form-select-sm">
-        {% for s in statuses %}
-        <option value="{{ s }}" {% if d.get('status', 'active') == s %}selected{% endif %}>
-          {{ s | capitalize }}
-        </option>
-        {% endfor %}
-      </select>
-    </div>
+  <div id="integration-wrap" class="mb-3">
+    <label class="form-label fw-semibold">HA Integration</label>
+    <select name="integration" class="form-select form-select-sm">
+      <option value="">— none —</option>
+      {% for integ in integrations %}
+      <option value="{{ integ }}" {% if d.get('integration') == integ %}selected{% endif %}>
+        {{ integ }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label fw-semibold">Status</label>
+    <select name="status" class="form-select form-select-sm">
+      {% for s in statuses %}
+      <option value="{{ s }}" {% if d.get('status', 'active') == s %}selected{% endif %}>
+        {{ s | capitalize }}
+      </option>
+      {% endfor %}
+    </select>
   </div>
 
   <div class="mb-3">
@@ -174,32 +199,34 @@ function onPrimaryChange() {
 
   <!-- ── Documentation ────────────────────────────────────── -->
   <p class="fw-semibold mb-1 small text-uppercase text-muted" style="letter-spacing:.06em">
-    Documentation to fetch
-  </p>
-  <p class="text-muted small mb-3">
-    Leave blank for doc types you don't need. A search hint finds the PDF automatically;
-    a direct URL skips the search.
+    Documentation
   </p>
 
-  {% for doc_type, label in [('manual','User Manual'), ('quickstart','Quick Start'), ('datasheet','Datasheet')] %}
+  <!-- User Manual -->
+  {% set _auto_hint = ([d.get('manufacturer',''), d.get('model',''), 'user manual PDF'] | reject('equalto','') | join(' ')) if d.get('manufacturer') else '' %}
   <div class="card mb-2">
-    <div class="card-header py-2 small fw-semibold">{{ label }}</div>
+    <div class="card-header py-2 small fw-semibold">User Manual</div>
     <div class="card-body py-2">
       <div class="mb-2">
         <label class="form-label small mb-1">Search hint</label>
-        <input name="{{ doc_type }}_hint" class="form-control form-control-sm"
-               placeholder="{{ d.get('manufacturer','Manufacturer') }} {{ d.get('model','Model') }} {{ label.lower() }} PDF"
-               value="{{ d.get(doc_type ~ '_hint', '') }}">
+        <input id="manual-hint" name="manual_hint" class="form-control form-control-sm"
+               placeholder="e.g. Samsung QN85QN90 user manual PDF"
+               value="{{ d.get('manual_hint') or _auto_hint }}"
+               data-auto="{{ _auto_hint }}">
       </div>
       <div>
-        <label class="form-label small mb-1 text-muted">Direct PDF URL (skips search)</label>
-        <input name="{{ doc_type }}_url" class="form-control form-control-sm"
+        <label class="form-label small mb-1 text-muted">Manual Link — PDF or web page (skips search)</label>
+        <input name="manual_url" class="form-control form-control-sm"
                placeholder="https://…"
-               value="{{ d.get(doc_type ~ '_url', '') }}">
+               value="{{ d.get('manual_url', '') }}">
       </div>
     </div>
   </div>
-  {% endfor %}
+
+  <!-- Additional documents (URL required) -->
+  <div id="extra-docs-container"></div>
+  <button type="button" class="btn btn-outline-secondary btn-sm w-100 mb-2"
+          onclick="addExtraDoc()">+ Add Document</button>
 
   <hr class="my-3">
 
@@ -220,15 +247,96 @@ function onPrimaryChange() {
 
   <!-- ── Actions ───────────────────────────────────────────── -->
   <div class="d-flex gap-2">
-    <button type="submit" class="btn btn-primary flex-grow-1">
+    <button type="submit" class="btn btn-primary flex-grow-1"
+            {% if not is_edit %}onclick="return _checkDupWarning()"{% endif %}>
       {% if is_edit %}Save Changes{% else %}Add Device{% endif %}
     </button>
     <button type="button" class="btn btn-outline-secondary" onclick="closeDrawer()">Cancel</button>
   </div>
+
+  </div>{# /form-details #}
 
 </form>
 
 <script>
 // Initialise category UI on load (handles edit mode where values are pre-set)
 onPrimaryChange();
+
+// ── Extra documents ────────────────────────────────────────────────────────
+let _extraIdx = 0;
+function addExtraDoc(label, url) {
+  const idx = _extraIdx++;
+  const card = document.createElement('div');
+  card.className = 'card mb-2';
+  card.id = `extra-doc-${idx}`;
+  card.innerHTML = `
+    <div class="card-header py-2 d-flex justify-content-between align-items-center">
+      <span class="small fw-semibold">Additional Document</span>
+      <button type="button" class="btn-close" style="font-size:.65rem"
+              onclick="document.getElementById('extra-doc-${idx}').remove()"></button>
+    </div>
+    <div class="card-body py-2">
+      <div class="mb-2">
+        <label class="form-label small mb-1">Label <span class="text-danger">*</span></label>
+        <input name="extra_label_${idx}" class="form-control form-control-sm" required
+               placeholder="e.g. Installation Guide, Wiring Diagram…"
+               value="${(label || '').replace(/"/g, '&quot;')}">
+      </div>
+      <div>
+        <label class="form-label small mb-1">Document Link — PDF or web page <span class="text-danger">*</span></label>
+        <input name="extra_url_${idx}" class="form-control form-control-sm" required
+               placeholder="https://…"
+               value="${(url || '').replace(/"/g, '&quot;')}">
+      </div>
+    </div>`;
+  document.getElementById('extra-docs-container').appendChild(card);
+}
+
+// Pre-populate extra docs in edit mode
+{% for doc in extra_docs %}
+addExtraDoc({{ doc.label | tojson }}, {{ doc.url | tojson }});
+{% endfor %}
+
+// ── Search hint auto-sync ──────────────────────────────────────────────────
+(function () {
+  const hintEl = document.getElementById('manual-hint');
+  if (!hintEl) return;
+
+  function buildHint() {
+    const mfr = (document.getElementById('manufacturer')?.value || '').trim();
+    const mdl = (document.getElementById('model')?.value || '').trim();
+    if (!mfr) return '';
+    return [mfr, mdl, 'user manual PDF'].filter(Boolean).join(' ');
+  }
+
+  function syncHint() {
+    const current = hintEl.value.trim();
+    const lastAuto = hintEl.dataset.auto || '';
+    // Only update when the field is empty or still shows the last auto value
+    if (!current || current === lastAuto) {
+      const next = buildHint();
+      hintEl.value = next;
+      hintEl.dataset.auto = next;
+    }
+  }
+
+  document.getElementById('manufacturer')?.addEventListener('input', syncHint);
+  document.getElementById('model')?.addEventListener('input', syncHint);
+
+  // Seed on load (covers add mode where fields are pre-typed before opening docs)
+  syncHint();
+})();
+
+// ── Duplicate warning gate ─────────────────────────────────────────────────
+function _checkDupWarning() {
+  const warn = document.getElementById('dup-alert');
+  if (warn) {
+    warn.classList.remove('dup-flash');
+    void warn.offsetWidth; // reflow to restart animation
+    warn.classList.add('dup-flash');
+    warn.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return false; // block submit
+  }
+  return true;
+}
 </script>
