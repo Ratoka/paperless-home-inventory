@@ -308,6 +308,10 @@ async def search_pdf_url(
         if log_fn:
             log_fn(msg)
 
+    # Append "english" to bias all text searches toward EN-language results
+    if "english" not in search_hint.lower():
+        search_hint = f"{search_hint} english"
+
     hint_pdf = f"{search_hint} filetype:pdf"
 
     # ── Stage 1: Manufacturer direct (site: search, zero API cost) ────────────
@@ -1181,10 +1185,10 @@ async def fetch_device_docs(
                 if paperless_id:
                     _tlog(app_task, f"[{doc_label}] Paperless #{paperless_id} ✓")
                 else:
-                    _tlog(app_task, f"[{doc_label}] OCR timed out — check Paperless logs")
+                    _tlog(app_task, f"[{doc_label}] OCR timed out (>90s) — document may still appear in Paperless")
             except Exception as exc:
                 logger.error("Paperless upload failed for %s/%s: %s", device_id, doc_type, exc)
-                _tlog(app_task, f"[{doc_label}] Upload error: {exc}")
+                _tlog(app_task, f"[{doc_label}] Paperless error: {exc}")
 
         # ── 4. Write final status ─────────────────────────────────────────
         if paperless_available() and not paperless_id:

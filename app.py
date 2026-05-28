@@ -24,6 +24,7 @@ import tasks as _tasks_mod
 import httpx
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from ruamel.yaml import YAML
 
@@ -212,6 +213,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Paperless Device Inventory", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # ── YAML helpers ───────────────────────────────────────────────────────────
 
@@ -355,13 +357,16 @@ def build_device(
         cat["tertiary"] = cat_tertiary.strip()
 
     docs = []
-    if manual_hint or manual_url:
-        entry: dict = {"type": "manual", "fetch_status": "pending"}
-        if manual_hint:
-            entry["search_hint"] = manual_hint
-        if manual_url:
-            entry["url"] = manual_url
-        docs.append(entry)
+    auto_hint = " ".join(
+        p for p in [manufacturer.strip(), model.strip(), "user manual PDF"] if p
+    )
+    hint = manual_hint.strip() or auto_hint
+    entry: dict = {"type": "manual", "fetch_status": "pending"}
+    if hint:
+        entry["search_hint"] = hint
+    if manual_url.strip():
+        entry["url"] = manual_url.strip()
+    docs.append(entry)
 
     for extra in (extra_docs or []):
         label = extra.get("label", "").strip()
@@ -814,6 +819,66 @@ async def serve_pdf(device_id: str, doc_type: str):
     return FileResponse(path, media_type="application/pdf", filename=path.name)
 
 
+@app.post("/devices/{device_id}/docs/{doc_type}/reset", response_class=HTMLResponse)
+async def reset_doc(
+    request: Request,
+    device_id: str,
+    doc_type: str,
+    background_tasks: BackgroundTasks,
+):
+    """Delete the stored doc from Paperless and disk, then re-queue a fetch."""
+    from fetch import pdf_filename
+    from paperless_api import PaperlessClient, paperless_available
+
+    devices = load_devices()
+    device = next((d for d in devices if d.get("id") == device_id), None)
+    if not device:
+        raise HTTPException(404, "Device not found")
+
+    doc = next((d for d in (device.get("docs") or []) if d.get("type") == doc_type), None)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    paperless_id = doc.get("paperless_id")
+    if paperless_id and paperless_available():
+        try:
+            await PaperlessClient().delete_document(int(paperless_id))
+            logger.info("Deleted Paperless doc #%d for %s/%s", paperless_id, device_id, doc_type)
+        except Exception:
+            logger.exception("Paperless deletion failed for %s/%s — continuing", device_id, doc_type)
+
+    pdf_path = MANUALS_DIR / device_id / pdf_filename(device.get("name", device_id), doc_type)
+    if pdf_path.exists():
+        try:
+            pdf_path.unlink()
+        except OSError:
+            logger.warning("Could not delete %s", pdf_path)
+
+    _KEEP = frozenset({"type", "label", "search_hint", "url"})
+    with _yaml_lock:
+        ry = _ryaml()
+        with open(INVENTORY_PATH) as f:
+            data = ry.load(f)
+        for d in (data.get("devices") or []):
+            if d.get("id") != device_id:
+                continue
+            for doc_entry in (d.get("docs") or []):
+                if doc_entry.get("type") == doc_type:
+                    for key in [k for k in list(doc_entry.keys()) if k not in _KEEP]:
+                        del doc_entry[key]
+                    doc_entry["fetch_status"] = "pending"
+                    break
+            break
+        with open(INVENTORY_PATH, "w") as f:
+            ry.dump(data, f)
+
+    if device_id not in _fetching:
+        _fetching.add(device_id)
+        background_tasks.add_task(_run_fetch, device_id)
+
+    return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
+
+
 @app.get("/devices/{device_id}/doc-status", response_class=HTMLResponse)
 async def doc_status(request: Request, device_id: str):
     """Polled by the UI to update doc status badges while a fetch is running."""
@@ -1008,7 +1073,7 @@ async def _paperless_upload_and_resolve(
             }, INVENTORY_PATH, _yaml_lock)
             _tasks_mod.task_done(app_task, True, f"Done — Paperless #{paperless_id}")
         else:
-            msg = "Paperless OCR did not complete — check Paperless logs"
+            msg = "Paperless OCR timed out (>10 min) — document may still appear in Paperless"
             update_doc_fields(device_id, doc_type, {
                 **base_fields,
                 "fetch_status": "error",
