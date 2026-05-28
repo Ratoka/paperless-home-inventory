@@ -11,17 +11,19 @@ STACK_DIR="/mnt/.ix-apps/app_mounts/dockge/stacks/inventory-manager"
 REPO="https://github.com/Ratoka/paperless-home-inventory.git"
 
 # ── Sync source from GitHub ──────────────────────────────────────────────────
+GIT="git -c safe.directory=$APP_DIR"
+
 if [[ -d "$APP_DIR/.git" ]]; then
     echo "Pulling latest from GitHub..."
     req_before=$(sha256sum "$APP_DIR/requirements.txt" 2>/dev/null | awk '{print $1}')
-    git -C "$APP_DIR" pull --ff-only
+    $GIT -C "$APP_DIR" pull --ff-only
 elif [[ -d "$APP_DIR" ]]; then
     echo "Converting app dir to git-managed (one-time migration)..."
     req_before=$(sha256sum "$APP_DIR/requirements.txt" 2>/dev/null | awk '{print $1}')
-    git -C "$APP_DIR" init
-    git -C "$APP_DIR" remote add origin "$REPO"
-    git -C "$APP_DIR" fetch
-    git -C "$APP_DIR" checkout -B main --track origin/main
+    $GIT -C "$APP_DIR" init
+    $GIT -C "$APP_DIR" remote add origin "$REPO"
+    $GIT -C "$APP_DIR" fetch
+    $GIT -C "$APP_DIR" checkout -B main --track origin/main
 else
     echo "Cloning from GitHub..."
     req_before=""
