@@ -12,16 +12,39 @@
 {% for primary_key, cat_info in category_tree.items() %}
   {% set cat_devices = by_category.get(primary_key, []) %}
   {% if cat_devices %}
+  {%- set ns = namespace(needs=0) %}
+  {%- for device in cat_devices %}
+    {%- if not device._fetching %}
+      {%- set dns = namespace(unfetched=false) %}
+      {%- for doc in (device.docs or []) %}
+        {%- if doc.get('fetch_status') not in ('success', 'searching', 'downloading', 'uploading') %}
+          {%- set dns.unfetched = true %}
+        {%- endif %}
+      {%- endfor %}
+      {%- if dns.unfetched %}{% set ns.needs = ns.needs + 1 %}{% endif %}
+    {%- endif %}
+  {%- endfor %}
   <div class="cat-section mb-2" data-cat-key="{{ primary_key }}">
 
+    <div class="d-flex align-items-center gap-2">
     <button type="button"
-            class="cat-toggle w-100 text-start d-flex align-items-center gap-2 border-0 px-3 py-2 rounded"
+            class="cat-toggle flex-grow-1 text-start d-flex align-items-center gap-2 border-0 px-3 py-2 rounded"
             onclick="toggleCategory('{{ primary_key }}', this)">
       <span class="cat-chevron" id="chevron-{{ primary_key }}">▸</span>
       <span class="fw-semibold">{{ cat_info.icon }} {{ cat_info.label }}</span>
       <span class="small opacity-75 ms-1" id="count-{{ primary_key }}">({{ cat_devices | length }})</span>
       <span class="small opacity-50 ms-auto" id="match-{{ primary_key }}" style="display:none"></span>
     </button>
+    {% if ns.needs > 0 %}
+    <button class="btn btn-outline-primary btn-sm flex-shrink-0"
+            style="font-size:.72rem;padding:2px 10px;white-space:nowrap"
+            hx-post="/categories/{{ primary_key }}/fetch-all"
+            hx-target="#device-list"
+            hx-swap="innerHTML">
+      ↓ Fetch all ({{ ns.needs }})
+    </button>
+    {% endif %}
+    </div>
 
     <div class="cat-body" id="catbody-{{ primary_key }}" style="display:none">
       <div class="card shadow-sm mb-1">
@@ -96,15 +119,38 @@
 {% set known_keys = category_tree.keys() | list %}
 {% for bucket_key, bucket_devices in by_category.items() %}
   {% if bucket_key not in known_keys and bucket_devices %}
+  {%- set bns = namespace(needs=0) %}
+  {%- for device in bucket_devices %}
+    {%- if not device._fetching %}
+      {%- set dns = namespace(unfetched=false) %}
+      {%- for doc in (device.docs or []) %}
+        {%- if doc.get('fetch_status') not in ('success', 'searching', 'downloading', 'uploading') %}
+          {%- set dns.unfetched = true %}
+        {%- endif %}
+      {%- endfor %}
+      {%- if dns.unfetched %}{% set bns.needs = bns.needs + 1 %}{% endif %}
+    {%- endif %}
+  {%- endfor %}
   <div class="cat-section mb-2" data-cat-key="__other__">
+    <div class="d-flex align-items-center gap-2">
     <button type="button"
-            class="cat-toggle w-100 text-start d-flex align-items-center gap-2 border-0 px-3 py-2 rounded"
+            class="cat-toggle flex-grow-1 text-start d-flex align-items-center gap-2 border-0 px-3 py-2 rounded"
             onclick="toggleCategory('__other__', this)">
       <span class="cat-chevron" id="chevron-__other__">▸</span>
       <span class="fw-semibold">📦 Uncategorized</span>
       <span class="small opacity-75 ms-1" id="count-__other__">({{ bucket_devices | length }})</span>
       <span class="small opacity-50 ms-auto" id="match-__other__" style="display:none"></span>
     </button>
+    {% if bns.needs > 0 %}
+    <button class="btn btn-outline-primary btn-sm flex-shrink-0"
+            style="font-size:.72rem;padding:2px 10px;white-space:nowrap"
+            hx-post="/categories/{{ bucket_key }}/fetch-all"
+            hx-target="#device-list"
+            hx-swap="innerHTML">
+      ↓ Fetch all ({{ bns.needs }})
+    </button>
+    {% endif %}
+    </div>
     <div class="cat-body" id="catbody-__other__" style="display:none">
       <div class="card shadow-sm mb-1">
         <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">

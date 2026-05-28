@@ -771,6 +771,35 @@ async def trigger_fetch(request: Request, device_id: str, background_tasks: Back
     return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
 
 
+@app.post("/categories/{cat_key}/fetch-all", response_class=HTMLResponse)
+async def fetch_category(request: Request, cat_key: str, background_tasks: BackgroundTasks):
+    """Queue fetch tasks for all unfetched devices in a category."""
+    _SKIP = frozenset({"success", "searching", "downloading", "uploading"})
+    data = load_data()
+    queued = 0
+    for d in (data.get("devices") or []):
+        if _primary(d) != cat_key:
+            continue
+        if d.get("id") in _fetching:
+            continue
+        unfetched = [
+            doc for doc in (d.get("docs") or [])
+            if doc.get("fetch_status") not in _SKIP
+        ]
+        if not unfetched:
+            continue
+        for doc in unfetched:
+            doc["fetch_status"] = "pending"
+            doc.pop("fetch_error", None)
+        _fetching.add(d["id"])
+        background_tasks.add_task(_run_fetch, d["id"])
+        queued += 1
+    if queued:
+        save_data(data)
+    logger.info("fetch-all for category %r: queued %d device(s)", cat_key, queued)
+    return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
+
+
 @app.get("/devices/{device_id}/docs/{doc_type}/pdf")
 async def serve_pdf(device_id: str, doc_type: str):
     """Serve the locally-stored PDF for a device document."""
