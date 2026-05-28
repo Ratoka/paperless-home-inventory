@@ -6,7 +6,8 @@
 # Subsequent runs: git pull + restart/rebuild as needed.
 set -euo pipefail
 
-APP_DIR="/mnt/zfs-acd-01/apps/inventory-manager"
+# ── Edit these to match your TrueNAS paths ──────────────────────────────────
+APP_DIR="/mnt/your-pool/apps/inventory-manager"
 STACK_DIR="/mnt/.ix-apps/app_mounts/dockge/stacks/inventory-manager"
 REPO="https://github.com/Ratoka/paperless-home-inventory.git"
 
