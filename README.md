@@ -7,20 +7,22 @@ A self-hosted web application for tracking home devices and managing their manua
 ## Features
 
 - **Device inventory** — track devices by name, manufacturer, model, category, protocols, location, and status (active / retired / stored)
-- **Tree view** — collapsible category groups with persistent expand/collapse state
+- **Tree view** — collapsible category groups with persistent expand/collapse state and per-category "Fetch all" button
 - **Real-time search** — filters rows across all categories instantly
 - **Duplicate detection** — warns when a new device matches an existing name or model number
-- **Multi-stage document search** — 8-stage PDF search pipeline (API providers → manufacturer direct → archive.org → scraping fallbacks)
+- **Multi-stage document search** — 8-stage PDF search pipeline: free stages first (manufacturer direct, archive.org, Google scraping, DuckDuckGo), then configured API providers as deeper-search fallback
 - **Blocked aggregator domains** — automatically skips manual-aggregator sites (ManualsLib, Manuals.plus, Scribd, etc.) at every search stage
 - **Vendor index scraping** — point a device at a manufacturer's manual index page and the app scrapes it for the correct PDF link
+- **1-page placeholder retry** — automatically rejects single-page cover-sheet PDFs and retries remaining search stages with the bad URL excluded
 - **Document pipeline** — downloads PDFs (or converts HTML pages via WeasyPrint) and uploads to Paperless-NGX
 - **Manual update check** — HEAD-checks stored source URLs for changes and re-uploads when content genuinely changes
 - **Provide URL / upload** — manual fallback when auto-search fails; accepts a direct PDF link, a web page URL, or a file upload
 - **Paperless sync** — reconcile existing Paperless documents back to inventory with a single click
-- **Background task queue** — all fetch and upload work runs in the background with a live task log view
-- **Navigation sidebar** — hamburger menu with Devices, Tasks, Categories, Settings, and HA import views
+- **Background task queue** — all fetch and upload work runs in the background with a live task log showing per-stage search status
+- **Navigation sidebar** — hamburger menu with Devices, Tasks, Categories, Manufacturers, Settings, and HA import views
 - **Category manager** — create, edit, and delete primary categories; rename secondary/tertiary values across all devices with automatic Paperless retag
-- **Settings UI** — manage search API keys and track per-provider usage from within the app
+- **Manufacturer bulk rename** — rename a manufacturer name across all devices at once, with automatic Paperless `mfr:` retag
+- **Settings UI** — manage search API keys, track per-provider usage, sync Brave quota from API headers, and link directly to each provider's usage portal
 - **Home Assistant import** — reads physical devices from HA, deduplicates by model, imports selected devices
 - **Ignore list** — suppress unwanted HA devices permanently by device ID or model
 - **Persistent config** — API keys, categories, and usage counters all survive container restarts
@@ -41,7 +43,7 @@ inventory-manager (FastAPI + uvicorn, port 7070)
 └── templates/        — Jinja2 + HTMX + Bootstrap 5 UI
 ```
 
-All inventory state lives in `devices.yaml` on a persistent volume. Categories and search API config each have their own YAML files in the same volume. No database.
+All inventory state lives in `devices.yaml` on a persistent data volume. No database.
 
 ---
 
@@ -53,7 +55,7 @@ All inventory state lives in `devices.yaml` on a persistent volume. Categories a
 inventory-manager:1.1
 ```
 
-The image tag is intentionally versioned. Incrementing it in `compose.yaml` forces a rebuild (e.g. after a `requirements.txt` change). Code-only changes (`.py` or templates) only need a restart because source is volume-mounted.
+The image tag is intentionally versioned. Incrementing it in `compose.yaml` forces a rebuild (required after `requirements.txt` changes). Code-only changes (`.py` files or templates) only need a container restart because the source directory is volume-mounted.
 
 ### Ports
 
@@ -65,7 +67,7 @@ The image tag is intentionally versioned. Incrementing it in `compose.yaml` forc
 
 | Container path | Purpose |
 |----------------|---------|
-| `/app`         | Application source (Python files, templates). Volume-mounted so code updates only need a restart. |
+| `/app`         | Application source (Python files, templates). Volume-mount your local clone here so code updates only need a restart. |
 | `/data`        | Persistent data: `devices.yaml`, `categories.yaml`, `config.yaml`, and `manuals/` PDF staging. |
 
 ### Environment Variables
@@ -73,15 +75,36 @@ The image tag is intentionally versioned. Incrementing it in `compose.yaml` forc
 | Variable          | Required | Default | Description |
 |-------------------|----------|---------|-------------|
 | `DATA_DIR`        | No       | `/data` | Path inside the container where persistent data files live. |
-| `PAPERLESS_URL`   | Yes      | —       | Base URL of your Paperless-NGX instance, e.g. `http://10.250.0.240:30070`. |
+| `PAPERLESS_URL`   | Yes      | —       | Base URL of your Paperless-NGX instance, e.g. `http://192.168.1.10:8000`. |
 | `PAPERLESS_TOKEN` | Yes      | —       | API token for the Paperless service account. See [Paperless setup](#paperless-ngx-setup). |
-| `HA_URL`          | No       | —       | Base URL of your Home Assistant instance, e.g. `https://10.0.0.5:8123`. Enables the HA import tool. |
+| `HA_URL`          | No       | —       | Base URL of your Home Assistant instance, e.g. `http://192.168.1.20:8123`. Enables the HA import tool. |
 | `HA_TOKEN`        | No       | —       | Home Assistant long-lived access token. Required if `HA_URL` is set. |
 | `HA_VERIFY_SSL`   | No       | `false` | Set to `true` to enforce SSL verification for HA connections. |
 
 > **Search API keys are not environment variables.** They are stored in `$DATA_DIR/config.yaml` via the in-app Settings UI so they persist across restarts without needing a container rebuild.
 
+---
+
+## Deployment
+
+### File layout
+
+```
+/your/app/path/           ← clone or copy repo contents here → mounted to /app
+  app.py
+  fetch.py
+  templates/
+  ...
+
+/your/data/path/          ← create this directory → mounted to /data
+  devices.yaml            ← created automatically on first run (or seed from your own file)
+  config.yaml             ← created automatically
+  manuals/                ← downloaded PDFs stored here
+```
+
 ### compose.yaml
+
+Copy `deploy/compose.yaml` to your stack directory and update the volume paths:
 
 ```yaml
 services:
@@ -90,62 +113,74 @@ services:
     image: inventory-manager:1.1
     container_name: inventory-manager
     volumes:
-      - /mnt/zfs-acd-01/apps/inventory-manager:/app
-      - /mnt/zfs-acd-01/media/docs/inventory:/data
+      - /your/app/path:/app
+      - /your/data/path:/data
     ports:
       - "7070:7070"
     environment:
       - DATA_DIR=/data
-      - PAPERLESS_URL=http://10.250.0.240:30070
+      - PAPERLESS_URL=${PAPERLESS_URL}
       - PAPERLESS_TOKEN=${PAPERLESS_TOKEN}
+      # Optional: enable HA import tool
       - HA_URL=${HA_URL:-}
       - HA_TOKEN=${HA_TOKEN:-}
     restart: unless-stopped
 ```
 
-### `.env` (Dockge stack environment)
+### .env file
+
+Create a `.env` file alongside `compose.yaml` (use `deploy/.env.example` as a starting point):
 
 ```env
+PAPERLESS_URL=http://your-paperless-host:8000
 PAPERLESS_TOKEN=your-paperless-api-token-here
-HA_URL=https://10.0.0.5:8123
-HA_TOKEN=your-ha-long-lived-token-here
+# HA_URL=http://your-homeassistant-host:8123
+# HA_TOKEN=your-ha-long-lived-access-token
 ```
 
----
+### First deploy
 
-## Deployment
-
-### First Deploy
-
-1. **Run sync.sh** from your local machine to copy source to TrueNAS and seed `devices.yaml`:
+1. Clone or copy the repo to the machine running Docker, e.g.:
 
    ```bash
-   ./paperless/scripts/inventory_manager/deploy/sync.sh
+   git clone https://github.com/Ratoka/paperless-home-inventory.git /your/app/path
    ```
 
-2. **Create the Dockge stack** (run once as root on TrueNAS):
+2. Create the data directory and your `.env` file:
 
    ```bash
-   STACK=/mnt/.ix-apps/app_mounts/dockge/stacks/inventory-manager
-   mkdir -p $STACK
-   cp /mnt/zfs-acd-01/apps/inventory-manager/stack/* $STACK/
+   mkdir -p /your/data/path
+   cp /your/app/path/deploy/.env.example /your/stack/path/.env
+   # edit .env with your actual values
    ```
 
-3. In **Dockge**, open the `inventory-manager` stack, set `PAPERLESS_TOKEN` in the env, and click **Deploy**.
+3. Build and start the container:
 
-### Code Update (Python / template changes only)
+   ```bash
+   docker compose up -d
+   ```
+
+   Or use a GUI like [Dockge](https://dockge.kuma.pet/) — place `compose.yaml` and `.env` in a stack directory and click **Deploy**.
+
+4. Open [http://your-host:7070](http://your-host:7070).
+
+5. Set up the Paperless service account — see [Paperless-NGX Setup](#paperless-ngx-setup).
+
+### Code updates (Python / template changes)
+
+Because the source directory is volume-mounted, you only need to pull new changes and restart:
 
 ```bash
-./deploy/sync.sh   # rsync source to TrueNAS
-# Dockge → inventory-manager → Restart
+git -C /your/app/path pull
+docker restart inventory-manager
 ```
 
-### Dependency Update (`requirements.txt` changed)
+### Dependency updates (`requirements.txt` changed)
 
 ```bash
-./deploy/sync.sh
+git -C /your/app/path pull
 # Bump image tag in compose.yaml (e.g. 1.1 → 1.2)
-# Dockge → inventory-manager → Rebuild → Restart
+docker compose up -d --build
 ```
 
 ---
@@ -157,8 +192,10 @@ The app uses a dedicated **service account** in Paperless-NGX with limited permi
 ### Guided setup script
 
 ```bash
-python3 paperless/scripts/inventory_manager/deploy/setup-paperless-account.py
+python3 deploy/setup-paperless-account.py
 ```
+
+Run this from inside the app directory. It prompts for your Paperless URL and an admin token, then creates the service account and prints the API token to paste into your `.env`.
 
 ### Required permissions
 
@@ -176,7 +213,7 @@ python3 paperless/scripts/inventory_manager/deploy/setup-paperless-account.py
 |---------------------------|---------|
 | `source:device-inventory` | Safety guard — only documents with this tag can be deleted through this app. |
 | `device:<device-id>`      | Per-device tag, e.g. `device:philips-hue-bridge`. |
-| `mfr:<slug>`              | Manufacturer slug tag, e.g. `mfr:onkyo`. Makes manufacturer searchable even if correspondent creation fails. |
+| `mfr:<slug>`              | Manufacturer slug tag, e.g. `mfr:onkyo`. |
 | `cat1:<primary>`          | Primary category slug, e.g. `cat1:smart-home`. |
 | `cat2:<secondary>`        | Secondary category slug (if set). |
 | `cat3:<tertiary>`         | Tertiary category slug (if set). |
@@ -187,16 +224,17 @@ The document correspondent is set to the manufacturer name. The document type is
 
 ## Navigation
 
-The hamburger button (☰) opens a left-side navigation panel with the following views, each loaded into the main content area without a full page reload:
+The hamburger button (☰) opens a left-side navigation panel:
 
-| Nav item     | Path                | Description |
-|--------------|---------------------|-------------|
-| 📦 Devices   | `/views/inventory`  | Main device inventory (default view) |
-| ✅ Tasks      | `/views/tasks`      | Live task log for all background operations |
-| 🏷 Categories | `/views/categories` | Category taxonomy manager |
-| ⚙ Settings   | `/views/settings`   | Search API keys and usage tracking |
-| 📡 Import Devices | drawer         | Home Assistant device import (HA only) |
-| 🚫 Ignore List    | drawer         | HA device ignore list (HA only) |
+| Nav item          | Description |
+|-------------------|-------------|
+| 📦 Devices        | Main device inventory (default view) |
+| ✅ Tasks           | Live task log for all background operations |
+| 🏷 Categories      | Category taxonomy manager |
+| 🏭 Manufacturers   | Bulk rename manufacturers across all devices |
+| ⚙ Settings        | Search API keys and usage tracking |
+| 📡 Import Devices  | Home Assistant device import (HA only) |
+| 🚫 Ignore List     | HA device ignore list (HA only) |
 
 ---
 
@@ -206,14 +244,14 @@ All fetch, upload, and Paperless retag operations run as background tasks. The *
 
 - Task type (fetch / upload / retag), label, and elapsed time
 - Status (running / success / error) with a spinner while running
-- Last 8 log lines per task with timestamps
+- Per-stage search log with ✓ found / no results / skipped status for each stage
 - **Clear Completed** button to remove finished tasks
 
 > Tasks are **in-memory only** and are lost on container restart. The YAML inventory file is the source of truth for document status.
 
 ### Stuck-status recovery
 
-If the container restarts while a fetch or upload is in progress, any document left in a `searching`, `downloading`, or `uploading` state is automatically reset to `error` with the message *"Interrupted — server restarted during fetch. Click ↺ to retry."* This happens at startup and also on the first poll of the doc-status endpoint for any affected device.
+If the container restarts while a fetch or upload is in progress, any document left in a `searching`, `downloading`, or `uploading` state is automatically reset to `error` with the message *"Interrupted — server restarted during fetch. Click ↺ to retry."*
 
 ---
 
@@ -223,11 +261,15 @@ If the container restarts while a fetch or upload is in progress, any document l
 
 When a device is added (or ↺ Fetch is clicked), the pipeline runs for each configured doc type:
 
-1. **Vendor index** (if `vendor_index_url` is set on the device) — scrapes the manufacturer's manual index page and matches by model number. See [Vendor index scraping](#vendor-index-scraping).
+1. **Vendor index** (if `vendor_index_url` is set) — scrapes the manufacturer's manual index page and matches by model number.
 2. **Search** — 8-stage PDF search. See [Search pipeline](#search-pipeline).
 3. **Download** — saves the PDF directly, or converts HTML pages to PDF via WeasyPrint (CDN resources stripped).
-4. **Validate** — rejects single-page PDFs not converted from HTML (likely placeholders).
+4. **Validate** — rejects single-page PDFs (likely cover sheets or landing pages). If rejected, the URL is excluded and the search resumes from the next stage automatically.
 5. **Upload** — uploads to Paperless-NGX, polls task API until OCR completes (up to 90 s).
+
+### Category fetch-all
+
+Each category header shows a **↓ Fetch all (N)** button when one or more devices in that category have unfetched or failed documents. Clicking it queues background fetch tasks for every eligible device in the category at once.
 
 ### PDF filenames
 
@@ -240,8 +282,6 @@ When auto-search fails (badge shows `?` or `!`), clicking the badge opens **Prov
 - A web page URL (converted to PDF)
 - A file upload (`.pdf`)
 
-The upload is queued immediately — the modal closes and a toast notification points to the Tasks view.
-
 ### Update check
 
 The **↻** button on a successfully-fetched document:
@@ -253,100 +293,86 @@ The **↻** button on a successfully-fetched document:
 
 ### Paperless sync
 
-The **🔍 Check Paperless** button appears on any device with an unresolved document. It queries Paperless for all documents tagged `device:<id>`, matches them to inventory docs by title suffix (e.g. `"Onkyo TX-NR7100 — Manual"` → type `manual`), and writes back `fetch_status: success` + `paperless_id`. Use this when a document is visible in Paperless but the inventory still shows an error.
+The **🔍 Check Paperless** button appears on any device with an unresolved document. It queries Paperless for all documents tagged `device:<id>`, matches them to inventory docs by title suffix, and writes back `fetch_status: success` + `paperless_id`. Use this when a document is visible in Paperless but the inventory still shows an error.
 
 ---
 
 ## Search Pipeline
 
-Stages are tried in order; the first confirmed PDF URL is returned and subsequent stages are skipped. Free stages run first to preserve API quota; the configured API providers are used only when the free stages find nothing.
+Stages are tried in order; the first confirmed PDF URL is returned and subsequent stages are skipped. Free stages run first to preserve API quota.
 
 | Stage | Provider | Cost | Notes |
 |-------|----------|------|-------|
-| 1 | **Manufacturer direct** | Free | DDG `site:{brand}.com` scoped search |
-| 2 | **Archive.org CDX** | Free | Wayback Machine PDF index for manufacturer URLs |
-| 3 | **Google HTML scraping** | Free | Fragile (captcha/rate-limit silent failures) |
-| 4 | **DDG filetype:pdf** | Free | Stable but weaker PDF index |
-| 5 | **DDG broad** | Free | Drops `filetype:pdf` filter |
-| 6 | **Brave Search API** | ~1,000 req/month free¹ | JSON API, configured in Settings |
-| 7 | **Google Custom Search** | 100 req/day free | Best index quality, configured in Settings |
-| 8 | **Bing Web Search** | 1,000 req/month free | Azure-backed, configured in Settings |
+| 1 | **Manufacturer direct** | Free | DDG `site:{brand}.com` scoped search. Requires manufacturer + model on the device. |
+| 2 | **Archive.org CDX** | Free | Wayback Machine PDF index for manufacturer URLs. Requires manufacturer + model. |
+| 3 | **Google HTML scraping** | Free | High-quality index; silently fails when rate-limited. |
+| 4 | **DDG filetype:pdf** | Free | Stable HTML endpoint. |
+| 5 | **DDG broad** | Free | Drops `filetype:pdf` filter. |
+| 6 | **Brave Search API** | ~1,000 req/month free¹ | JSON API, configured in Settings. |
+| 7 | **Google Custom Search** | 100 req/day free | Best index quality, configured in Settings. |
+| 8 | **Bing Web Search** | 1,000 req/month free | Azure-backed, configured in Settings. |
 
-API stages are only active when a key is configured in **⚙ Settings**. Stages 1–5 always run regardless.
+API stages (6–8) are only active when a key is configured in **⚙ Settings**. Stages 1–5 always run regardless.
 
 > ¹ Brave's free tier is $5/month in account credits at $5/1,000 queries. A credit card is required to create an account.
 
 ### Rate-limit enforcement
 
-Each API provider tracks its free-tier quota and enforces a hard stop when the limit is reached:
-
-| Provider | Limit | Window | Source |
-|----------|-------|--------|--------|
-| Brave | ~1,000 req | Monthly | Server-confirmed via `X-RateLimit-*` response headers; falls back to local daily counter sum |
+| Provider | Limit | Window | Tracking |
+|----------|-------|--------|----------|
+| Brave | ~1,000 req | Monthly | Server-confirmed via `X-RateLimit-*` response headers; falls back to local daily counter |
 | Google CSE | 100 req | Daily | Local counter |
 | Bing | 1,000 req | Monthly | Local counter |
 
 When a provider reaches its limit:
-- **Allow paid usage unchecked** — that provider is skipped for the rest of the period. Searches fall through to the next stage automatically.
+- **Allow paid usage unchecked** — that provider is skipped for the rest of the period and searches fall through to the next stage.
 - **Allow paid usage checked** — the provider continues to be called; charges beyond the free tier apply.
 
-The **⚙ Settings** UI shows for each provider: current usage vs. limit on a colour-coded progress bar, whether the number is server-confirmed or a local estimate, the reset date with a day countdown, and a status badge (Active / ⏸ Paused / 💳 Paid mode). A red card border and alert banner appear when a provider is paused due to a reached limit.
-
-**Brave quota tracking:** After every Brave API call the app parses the `X-RateLimit-Policy`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` response headers to get the server-confirmed remaining quota and reset date for the monthly billing window. This data is persisted to `config.yaml` and shown in Settings as "✓ From Brave API headers". If no API call has been made yet in the current period the app falls back to summing local daily counters.
-
-> API stages (6–8) are skipped entirely when their free limit is reached and **Allow paid usage** is unchecked. The search falls through to the next configured provider, then stops. Free stages (1–5) are unaffected by this.
+The **⚙ Settings** UI shows for each provider: current usage vs. limit on a colour-coded progress bar, the reset date with a day countdown, a **↻ Sync usage** button to probe the Brave API live, and a link to the provider's usage portal.
 
 ### Blocked domains
 
-The following manual-aggregator sites are blocked at every stage — URLs from these domains are discarded before any download is attempted:
+The following manual-aggregator sites are blocked at every stage — URLs from these domains are discarded before any download is attempted, and `-site:` operators are appended to every search query:
 
-`manuals.plus`, `manualslib.com`, `manualzz.com`, `usermanual.wiki`, `scribd.com`, `calameo.com`, `issuu.com`, `docplayer.net`, and others. `-site:` operators are also appended to every search query to prevent aggregators appearing in results.
+`manuals.plus`, `manualslib.com`, `manualzz.com`, `usermanual.wiki`, `scribd.com`, `calameo.com`, `issuu.com`, `docplayer.net`, and others.
 
 ---
 
 ## Search API Setup Guides
 
-API keys are entered in **⚙ Settings** inside the app. They are saved to `$DATA_DIR/config.yaml` and never need to be in environment variables or the container config.
+API keys are entered in **⚙ Settings** inside the app. They are saved to `$DATA_DIR/config.yaml` and never need to be in environment variables.
 
 ### Brave Search API
 
-Brave uses a **freemium credit model**: $5 in free credits are applied to your account each month, which covers approximately 1,000 queries at the standard rate of $5/1,000 requests. **A credit card is required** to create an account (used for identity verification only — you will not be charged within the monthly credit allowance).
+1. Go to [api.search.brave.com](https://api.search.brave.com/) and create an account (credit card required for activation; not charged within monthly credits).
+2. Create an API key under **API Keys**.
+3. In the app: **⚙ Settings → Brave Search → API Key** → paste key → **Save**.
 
-1. Go to [api.search.brave.com](https://api.search.brave.com/) and create an account.
-2. Add a payment method (required for account activation; not charged within free credit).
-3. Create an API key under **API Keys**.
-4. In the app: **⚙ Settings → Brave Search → API Key** → paste key → **Save**.
-
-> **Free limit:** ~1,000 queries/month ($5 credit ÷ $5 per 1,000). The Settings usage meter reflects this, updated from Brave's own rate-limit response headers after each search call.
-
-To allow spending beyond the free credit: check **Allow usage beyond free tier** in Settings. Leave it unchecked to hard-stop at the monthly limit and fall through to free search stages instead.
+> Free limit: ~1,000 queries/month. The Settings usage meter is updated from Brave's rate-limit response headers after each search call.
 
 ### Google Custom Search API
 
-Highest result quality, but limited to 100 free queries per day. Good as the primary provider if you rarely re-search.
+1. Go to [programmablesearchengine.google.com](https://programmablesearchengine.google.com/), click **Add**, and choose **Search the entire web**.
+2. Copy the **Search engine ID (CX)**.
+3. In [Google Cloud Console](https://console.cloud.google.com/), create a project, enable the **Custom Search JSON API**, and create an API key under Credentials.
+4. In the app: **⚙ Settings → Google Custom Search** → paste **API Key** and **CX** → **Save**.
 
-1. Go to [programmablesearchengine.google.com](https://programmablesearchengine.google.com/) and click **Add**.
-2. Under **What to search**, choose **Search the entire web**.
-3. Copy the **Search engine ID** (CX) — it looks like `a1b2c3d4e5f6g7h8i`.
-4. Go to [console.cloud.google.com](https://console.cloud.google.com/), create a project, enable the **Custom Search JSON API**, and create an **API key** under Credentials.
-5. In the app: **⚙ Settings → Google Custom Search** → paste both the **API Key** and **Search Engine ID (CX)** → **Save**.
-
-> The daily 100-query limit resets at midnight Pacific. The Settings UI shows today's usage on a progress bar. Check **Allow usage beyond free tier** to continue past 100 queries/day (paid); leave it unchecked to fall through to Bing or free stages instead.
+> Free limit: 100 queries/day, resets at midnight Pacific.
 
 ### Bing Web Search API
 
-Available through Azure Cognitive Services with a free tier.
-
-1. Create an [Azure account](https://azure.microsoft.com/) if you don't have one (free tier available).
-2. In the Azure portal, search for **Bing Search v7**, create a resource, and select the **F1** (free) pricing tier.
+1. Create an [Azure account](https://azure.microsoft.com/) if you don't have one.
+2. Search for **Bing Search v7**, create a resource on the **F1 (free)** pricing tier.
 3. Under **Keys and Endpoint**, copy **Key 1**.
 4. In the app: **⚙ Settings → Bing Web Search → API Key** → paste key → **Save**.
+
+> Free limit: 1,000 queries/month.
 
 ---
 
 ## Vendor Index Scraping
 
-For manufacturers that publish a central manual index page (e.g. Inovelli's help site), you can skip the search engine entirely by pointing the device at that page.
+For manufacturers that publish a central manual index page, you can skip the search engine entirely by pointing the device at that page.
 
 Add `vendor_index_url` to the device entry in `devices.yaml`:
 
@@ -361,13 +387,7 @@ Add `vendor_index_url` to the device entry in `devices.yaml`:
       fetch_status: pending
 ```
 
-The scraper:
-1. Fetches the index page and parses all links with their surrounding block context.
-2. **Priority 1** — links in the same table row / block as text matching the normalized model number (e.g. `VZM31-SN` → `vzm31sn`).
-3. **Priority 2** — links whose own URL contains the normalized model (catches short redirect URLs like `https://inov.li/vzm31snPDF`).
-4. HEAD-checks each candidate to confirm a PDF is served (follows redirects).
-
-`vendor_index_url` can also be set at the individual doc level (`doc.vendor_index_url`) for doc-type-specific index pages.
+The scraper fetches the index page, parses links with their surrounding block context, and matches by normalized model number. `vendor_index_url` can also be set at the individual doc level for doc-type-specific index pages.
 
 ---
 
@@ -375,20 +395,8 @@ The scraper:
 
 Open **🏷 Categories** from the nav to manage the category taxonomy.
 
-### Primary categories
-
-- **Add** — key (slug), display label, icon emoji, electronic flag.
-- **Edit** — label, icon, and electronic flag in-place.
-- **Delete** — removes the category. Devices using it keep their existing value.
-
-### Secondary / tertiary values
-
-Click a primary category to load its secondary panel:
-
-- Shows all secondary values actually in use across inventory, with device counts.
-- **Rename** — updates every matching device in `devices.yaml` synchronously, then queues a Paperless retag (`cat2:old-slug` → `cat2:new-slug`) as a background task visible in the Tasks view.
-- Suggested values from the category definition are shown as reference chips.
-- Tertiary values (used by Automotive and similar categories) are listed separately.
+- **Primary categories** — add (key, label, icon), edit, or delete. Devices keep their existing value if a category is deleted.
+- **Secondary / tertiary values** — click a primary category to see all values in use with device counts. Renaming a value updates every matching device in `devices.yaml` and queues a Paperless retag background task.
 
 ---
 
@@ -396,17 +404,9 @@ Click a primary category to load its secondary panel:
 
 When `HA_URL` and `HA_TOKEN` are set, HA-specific nav items appear.
 
-### How device fetching works
-
 1. Posts a Jinja2 template to the HA `/api/template` endpoint, collecting physical devices (`entry_type is none`).
-2. Deduplicates by `(manufacturer, model)` — 12 identical Hue bulbs appear as one import candidate.
-3. Filters out devices already in inventory (matched by manufacturer + model) and devices on the ignore list.
-
-### Ignore list
-
-Ignoring stores both the HA device ID and the `(manufacturer, model)` pair. Future imports silently skip both the exact HA ID and any device with the same model.
-
-### HA token
+2. Deduplicates by `(manufacturer, model)` — 12 identical bulbs appear as one import candidate.
+3. Filters out devices already in inventory and devices on the ignore list.
 
 Create a long-lived access token in Home Assistant under **Profile → Security → Long-Lived Access Tokens**.
 
@@ -437,8 +437,6 @@ devices:
     protocols: [ethernet]
     location: Living Room
     status: active
-    # Optional: skip search engines and scrape vendor index page instead
-    vendor_index_url: https://www.onkyo.com/manual/…
     docs:
       - type: manual
         search_hint: "Onkyo TX-NR7100 user manual PDF"
@@ -466,8 +464,8 @@ ha_ignored:
 search_providers:
   brave:
     api_key: "BSAxxxxxxxxx"
-    allow_paid: false          # true = continue past free tier (charges apply)
-    rate_limit:                # updated from X-RateLimit-* headers after each call
+    allow_paid: false
+    rate_limit:               # updated from X-RateLimit-* headers after each call
       remaining: 847
       reset_date: "2026-06-01"
   google_cse:
@@ -486,69 +484,18 @@ api_usage:
     "2026-05-27": 3
 ```
 
-Usage counters are keyed by ISO date (`YYYY-MM-DD`). Monthly totals are computed by summing all days in the current month. The Settings UI shows a progress bar and collapsible day-by-day history per provider.
-
-The `rate_limit` block under `brave` is written after each Brave API call from the `X-RateLimit-Remaining` and `X-RateLimit-Reset` response headers. When the `reset_date` is still in the future, this server-confirmed value takes precedence over the local counter sum in the limit-enforcement logic.
-
----
-
-## Recommended Enhancements
-
-The following features are not yet implemented but are straightforward additions that would complement the current architecture.
-
-### 1. Search Result Caching
-
-**What it does:** Caches the last successful `(manufacturer, model, doc_type) → PDF URL` mapping for 24 hours. Re-fetching a device after a transient error reuses the cached URL instead of burning API calls.
-
-**Quick setup guide:**
-1. Create `$DATA_DIR/search_cache.yaml` (app creates it automatically on first write).
-2. Add a `cache_search_result(manufacturer, model, doc_type, url)` function to `config.py` that writes `{date: today, url: url}` under a compound key.
-3. In `fetch_device_docs`, before calling `search_pdf_url`, check the cache. If a valid (< 24 h) URL exists, use it directly and log `[{doc_label}] Using cached URL`.
-4. On download failure, invalidate the cache entry and retry with full search.
-
-### 2. Bulk Retry for Unfetched Devices
-
-**What it does:** A single button queues a background fetch for every device that has at least one doc in `not_found` or `error` state, processing them sequentially to avoid hammering APIs.
-
-**Quick setup guide:**
-1. Add a route `POST /devices/retry-all-failed` that reads all devices, filters to those with unresolved docs, and queues one `_run_fetch` background task per device.
-2. Add a semaphore in `_run_fetch` (e.g. `asyncio.Semaphore(2)`) so at most 2 fetches run concurrently.
-3. Add a **Retry all failed** button in `_device_list.html` near the top of the page, only shown when at least one device has an unresolved doc.
-4. The Tasks view already shows all in-flight operations — no new UI needed.
-
-### 3. Per-Search Attribution Logging
-
-**What it does:** Records which search stage found each document (`found_by: brave`, `found_by: manufacturer-direct`, etc.) in `devices.yaml`. Over time this reveals which providers are actually useful for your device mix and informs which API tiers are worth paying for.
-
-**Quick setup guide:**
-1. Add `found_by: str | None = None` to the fields written in the final status block in `fetch_device_docs`.
-2. Return the stage name from `search_pdf_url` alongside the URL (change return type to `tuple[str, str] | None`).
-3. In the Settings UI, add a **Provider performance** section that reads all devices and counts `found_by` values — shows a small bar chart of which provider found the most manuals.
-
-### 4. Vendor Index URL Library
-
-**What it does:** A shared `$DATA_DIR/vendor_indexes.yaml` that maps manufacturer names to their manual index pages. When a device is fetched and its manufacturer is in the library, `vendor_index_url` is applied automatically without needing it on every device record.
-
-**Quick setup guide:**
-1. Create `$DATA_DIR/vendor_indexes.yaml`:
-   ```yaml
-   Inovelli: https://help.inovelli.com/en/articles/8426779-device-manuals
-   Onkyo: https://www.onkyo.com/manual/
-   ```
-2. In `fetch_device_docs`, after reading the device, check `vendor_indexes.yaml` for the device's manufacturer; merge with any device-level `vendor_index_url` (device-level takes priority).
-3. Add a **Vendor Index Library** section to the Category Manager or Settings view with a simple add/edit/delete table.
-
 ---
 
 ## Local Development
 
 ```bash
-cd paperless/scripts/inventory_manager
+git clone https://github.com/Ratoka/paperless-home-inventory.git
+cd paperless-home-inventory
 
 pip install -r requirements.txt
 
-DATA_DIR=../../inventory \
-PAPERLESS_URL=http://localhost:8000 \
+DATA_DIR=/path/to/data \
+PAPERLESS_URL=http://your-paperless-host:8000 \
 PAPERLESS_TOKEN=your-token \
 uvicorn app:app --reload --port 7070
 ```
@@ -560,3 +507,22 @@ WeasyPrint system dependencies (Debian/Ubuntu):
 ```bash
 apt-get install libpangocairo-1.0-0 libpango-1.0-0 libcairo2 libglib2.0-0 fonts-liberation
 ```
+
+---
+
+## Recommended Enhancements
+
+### Search Result Caching
+
+Cache the last successful `(manufacturer, model, doc_type) → PDF URL` mapping for 24 hours. Re-fetching a device after a transient error reuses the cached URL instead of burning API calls.
+
+1. Add `cache_search_result(manufacturer, model, doc_type, url)` to `config.py`, writing to `$DATA_DIR/search_cache.yaml`.
+2. In `fetch_device_docs`, check the cache before calling `search_pdf_url`. On download failure, invalidate the cache entry and retry with full search.
+
+### Per-Search Attribution Stats
+
+Record which search stage found each document (`found_by: brave`, `found_by: manufacturer-direct`, etc.) in `devices.yaml`. The task log already shows this per-run; persisting it to the YAML enables a **Provider performance** section in Settings showing which providers are actually finding documents for your device mix.
+
+### Vendor Index URL Library
+
+A shared `$DATA_DIR/vendor_indexes.yaml` mapping manufacturer names to their manual index pages. When a device is fetched and its manufacturer is in the library, `vendor_index_url` is applied automatically without needing it on every device record.
