@@ -18,7 +18,9 @@ if [[ -d "$APP_DIR/.git" ]]; then
     echo "Pulling latest from GitHub..."
     req_before=$(sha256sum "$APP_DIR/requirements.txt" 2>/dev/null | awk '{print $1}')
     $GIT -C "$APP_DIR" remote set-url origin "$REPO"
-    $GIT -C "$APP_DIR" pull --ff-only
+    $GIT -C "$APP_DIR" fetch
+    $GIT -C "$APP_DIR" reset --hard origin/main
+    $GIT -C "$APP_DIR" clean -fd
 elif [[ -d "$APP_DIR" ]]; then
     echo "Converting app dir to git-managed (one-time migration)..."
     req_before=$(sha256sum "$APP_DIR/requirements.txt" 2>/dev/null | awk '{print $1}')
@@ -26,7 +28,8 @@ elif [[ -d "$APP_DIR" ]]; then
     $GIT -C "$APP_DIR" remote set-url origin "$REPO" 2>/dev/null || \
       $GIT -C "$APP_DIR" remote add origin "$REPO"
     $GIT -C "$APP_DIR" fetch
-    $GIT -C "$APP_DIR" checkout -B main --track origin/main
+    $GIT -C "$APP_DIR" reset --hard origin/main
+    $GIT -C "$APP_DIR" clean -fd
 else
     echo "Cloning from GitHub..."
     req_before=""
