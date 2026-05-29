@@ -305,6 +305,13 @@
             </td>
             <td>{% include "_doc_status.html" %}</td>
             <td class="text-end">
+              <button class="btn btn-outline-success action-btn me-1"
+                      hx-post="/devices/{{ device.id }}/reinstate"
+                      hx-target="#device-list"
+                      hx-swap="innerHTML"
+                      hx-confirm="Reinstate {{ device.name }} as active?">
+                Reinstate
+              </button>
               <button class="btn btn-outline-secondary action-btn me-1"
                       onclick="openDrawer('Edit Device')"
                       hx-get="/devices/{{ device.id }}/edit"
