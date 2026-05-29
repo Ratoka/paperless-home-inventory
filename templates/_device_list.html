@@ -1,4 +1,5 @@
 {% set status_class = {'active': 'badge-active', 'retired': 'badge-retired', 'stored': 'badge-stored'} %}
+{% set doc_lbl = {'manual': 'M', 'quickstart': 'QS', 'datasheet': 'DS'} %}
 {% if not by_category %}
 <div class="text-center text-muted py-5" id="empty-state">
   <div style="font-size:3rem">📋</div>
@@ -83,6 +84,20 @@
                 {% include "_doc_status.html" %}
               </td>
               <td class="text-end">
+                {% if not device._fetching %}
+                  {% for doc in (device.get('docs') or []) %}
+                    {% if doc.get('fetch_status') == 'success' %}
+                <button class="btn btn-outline-danger action-btn me-1"
+                        hx-post="/devices/{{ device.id }}/docs/{{ doc.type }}/reset"
+                        hx-target="#device-list"
+                        hx-swap="innerHTML"
+                        hx-confirm="Delete this {{ doc.type }} from Paperless and disk, then re-fetch?"
+                        title="Delete {{ doc.type }} and re-fetch">
+                  {{ doc_lbl.get(doc.type) or doc.type[:2].upper() }} ✕
+                </button>
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
                 <button class="btn btn-outline-secondary action-btn me-1"
                         onclick="openDrawer('Edit Device')"
                         hx-get="/devices/{{ device.id }}/edit"
@@ -188,6 +203,20 @@
                 {% include "_doc_status.html" %}
               </td>
               <td class="text-end">
+                {% if not device._fetching %}
+                  {% for doc in (device.get('docs') or []) %}
+                    {% if doc.get('fetch_status') == 'success' %}
+                <button class="btn btn-outline-danger action-btn me-1"
+                        hx-post="/devices/{{ device.id }}/docs/{{ doc.type }}/reset"
+                        hx-target="#device-list"
+                        hx-swap="innerHTML"
+                        hx-confirm="Delete this {{ doc.type }} from Paperless and disk, then re-fetch?"
+                        title="Delete {{ doc.type }} and re-fetch">
+                  {{ doc_lbl.get(doc.type) or doc.type[:2].upper() }} ✕
+                </button>
+                    {% endif %}
+                  {% endfor %}
+                {% endif %}
                 <button class="btn btn-outline-secondary action-btn me-1"
                         onclick="openDrawer('Edit Device')"
                         hx-get="/devices/{{ device.id }}/edit"
@@ -218,5 +247,85 @@
   </div>
   {% endif %}
 {% endfor %}
+
+{# ── Retired devices ─────────────────────────────────────────────────────── #}
+{% set retired_devices = by_category.get("__retired__", []) %}
+{% if retired_devices %}
+<div class="cat-section mb-2" data-cat-key="__retired__">
+  <div class="d-flex align-items-center gap-2">
+    <button type="button"
+            class="cat-toggle flex-grow-1 text-start d-flex align-items-center gap-2 border-0 px-3 py-2 rounded"
+            onclick="toggleCategory('__retired__', this)">
+      <span class="cat-chevron" id="chevron-__retired__">▸</span>
+      <span class="fw-semibold">♻️ Retired</span>
+      <span class="small opacity-75 ms-1" id="count-__retired__">({{ retired_devices | length }})</span>
+      <span class="small opacity-50 ms-auto" id="match-__retired__" style="display:none"></span>
+    </button>
+    <button class="btn btn-outline-danger btn-sm flex-shrink-0"
+            style="font-size:.72rem;padding:2px 10px;white-space:nowrap"
+            hx-post="/devices/retired/delete-all"
+            hx-target="#device-list"
+            hx-swap="innerHTML"
+            hx-confirm="Delete all {{ retired_devices | length }} retired device(s)? Associated manuals will also be removed from Paperless. This cannot be undone.">
+      ✕ Delete all ({{ retired_devices | length }})
+    </button>
+  </div>
+  <div class="cat-body" id="catbody-__retired__" style="display:none">
+    <div class="card shadow-sm mb-1">
+      <table class="table table-hover mb-0 align-middle" style="font-size:.875rem">
+        <thead class="table-secondary">
+          <tr>
+            <th style="width:14%">Manufacturer</th>
+            <th style="width:12%">Model</th>
+            <th style="width:18%">Name</th>
+            <th style="width:11%">Location</th>
+            <th style="width:10%">Protocols</th>
+            <th style="width:6%">Status</th>
+            <th style="width:15%">Docs</th>
+            <th style="width:14%"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for device in retired_devices %}
+          <tr class="device-row" id="device-{{ device.id }}"
+              data-search="{{ [device.name, device.manufacturer, device.model or '', device._cat_label or '', device.get('location',''), device.get('integration','')] | join(' ') | lower }}">
+            <td class="text-muted">{{ device.manufacturer }}</td>
+            <td class="text-muted font-monospace small">{{ device.model or '—' }}</td>
+            <td class="fw-semibold">{{ device.name }}</td>
+            <td class="small text-muted">{{ device.get('location','') or '—' }}</td>
+            <td>
+              {% for p in (device.protocols or []) %}
+              <span class="proto-pill">{{ p }}</span>
+              {% endfor %}
+            </td>
+            <td>
+              <span class="badge {{ status_class.get(device.status, 'bg-secondary') }} small">
+                {{ device.status }}
+              </span>
+            </td>
+            <td>{% include "_doc_status.html" %}</td>
+            <td class="text-end">
+              <button class="btn btn-outline-secondary action-btn me-1"
+                      onclick="openDrawer('Edit Device')"
+                      hx-get="/devices/{{ device.id }}/edit"
+                      hx-target="#drawer-body">
+                Edit
+              </button>
+              <button class="btn btn-outline-danger action-btn"
+                      hx-delete="/devices/{{ device.id }}"
+                      hx-target="#device-list"
+                      hx-swap="innerHTML"
+                      hx-confirm="Delete {{ device.name }} from inventory? Associated manuals will also be removed from Paperless. This cannot be undone.">
+                ✕
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
 
 {% endif %}
