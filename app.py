@@ -253,7 +253,10 @@ def _primary(device: dict) -> str:
 def devices_by_category(devices: list) -> dict[str, list]:
     grouped: dict[str, list] = {}
     for d in devices:
-        grouped.setdefault(_primary(d), []).append(d)
+        if d.get("status") == "retired":
+            grouped.setdefault("__retired__", []).append(d)
+        else:
+            grouped.setdefault(_primary(d), []).append(d)
     return grouped
 
 
@@ -623,6 +626,28 @@ async def retire_device(request: Request, device_id: str):
             d["status"] = "retired"
             break
     save_data(data)
+    return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
+
+
+@app.post("/devices/retired/delete-all", response_class=HTMLResponse)
+async def delete_all_retired(request: Request):
+    from paperless_api import PaperlessClient, paperless_available
+    devices = load_devices()
+    retired_ids = [d["id"] for d in devices if d.get("status") == "retired"]
+    if paperless_available():
+        client = PaperlessClient()
+        for device_id in retired_ids:
+            try:
+                deleted = await client.delete_device_documents(device_id)
+                if deleted:
+                    logger.info("Deleted %d Paperless doc(s) for device %s", len(deleted), device_id)
+            except Exception:
+                logger.exception("Paperless deletion failed for %s — continuing", device_id)
+    data = load_data()
+    data["devices"] = [d for d in (data.get("devices") or []) if d.get("status") != "retired"]
+    save_data(data)
+    for device_id in retired_ids:
+        _fetching.discard(device_id)
     return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
 
 
