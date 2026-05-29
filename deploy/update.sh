@@ -39,23 +39,13 @@ fi
 
 req_after=$(sha256sum "$APP_DIR/requirements.txt" | awk '{print $1}')
 
-# ── Update Dockge stack files ────────────────────────────────────────────────
-echo "Updating Dockge stack files..."
-mkdir -p "$STACK_DIR"
-cp "$APP_DIR/Dockerfile"       "$STACK_DIR/"
-cp "$APP_DIR/requirements.txt" "$STACK_DIR/"
-sed \
-  -e "s|/path/to/apps/inventory-manager|${APP_DIR}|g" \
-  -e "s|/path/to/data/inventory|${DATA_DIR}|g" \
-  "$APP_DIR/deploy/compose.yaml" > "$STACK_DIR/compose.yaml"
-
-# ── Restart or rebuild ───────────────────────────────────────────────────────
+# ── Restart container ────────────────────────────────────────────────────────
 cd "$STACK_DIR"
 if [[ "$req_before" != "$req_after" ]]; then
-    echo "requirements.txt changed — rebuilding image..."
-    docker compose up --build -d
+    echo "WARNING: requirements.txt changed — a rebuild is needed."
+    echo "Run sync-inventory-manager.sh from your local machine to rebuild."
 else
-    echo "Code-only update — restarting container..."
+    echo "Restarting container..."
     docker compose restart
 fi
 
