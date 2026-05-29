@@ -7,6 +7,7 @@ A self-hosted web application for tracking home devices and managing their manua
 ## Features
 
 - **Device inventory** — track devices by name, manufacturer, model, category, protocols, location, and status (active / retired / stored)
+- **Retired section** — retiring a device moves it to a dedicated ♻️ Retired group at the bottom of the device list; reinstate any device back to active with one click; bulk-delete all retired devices (and their Paperless documents) at once
 - **Tree view** — collapsible category groups with persistent expand/collapse state and per-category "Fetch all" button
 - **Real-time search** — filters rows across all categories instantly
 - **Duplicate detection** — warns when a new device matches an existing name or model number
@@ -17,6 +18,7 @@ A self-hosted web application for tracking home devices and managing their manua
 - **Document pipeline** — downloads PDFs (or converts HTML pages via WeasyPrint) and uploads to Paperless-NGX
 - **Manual update check** — HEAD-checks stored source URLs for changes and re-uploads when content genuinely changes
 - **Provide URL / upload** — manual fallback when auto-search fails; accepts a direct PDF link, a web page URL, or a file upload
+- **Document reset** — delete a successfully-fetched document from Paperless and disk and re-queue a fresh search, without losing the device record
 - **Paperless sync** — reconcile existing Paperless documents back to inventory with a single click
 - **Background task queue** — all fetch and upload work runs in the background with a live task log showing per-stage search status
 - **Navigation sidebar** — hamburger menu with Devices, Tasks, Categories, Manufacturers, Settings, and HA import views
@@ -282,6 +284,10 @@ When auto-search fails (badge shows `?` or `!`), clicking the badge opens **Prov
 - A web page URL (converted to PDF)
 - A file upload (`.pdf`)
 
+### Document reset
+
+The **✕** button next to a successfully-fetched document badge deletes the document from Paperless and from the local `manuals/` directory, resets the doc entry to `pending`, and immediately re-queues a fresh fetch. Use this when a downloaded PDF is wrong or corrupted and you want the pipeline to try again from scratch.
+
 ### Update check
 
 The **↻** button on a successfully-fetched document:
@@ -397,6 +403,21 @@ Open **🏷 Categories** from the nav to manage the category taxonomy.
 
 - **Primary categories** — add (key, label, icon), edit, or delete. Devices keep their existing value if a category is deleted.
 - **Secondary / tertiary values** — click a primary category to see all values in use with device counts. Renaming a value updates every matching device in `devices.yaml` and queues a Paperless retag background task.
+
+---
+
+## Retired Devices
+
+Clicking **Retire** on an active device moves it out of its category and into the **♻️ Retired** section, which appears at the bottom of the device list.
+
+| Action | Button | Effect |
+|--------|--------|--------|
+| Retire | **Retire** (on any active device row) | Sets status to `retired`; device moves to the Retired section |
+| Reinstate | **Reinstate** (in the Retired section) | Sets status back to `active`; device returns to its original category |
+| Delete one | **✕** (in the Retired section) | Removes the device and its Paperless documents |
+| Delete all | **✕ Delete all (N)** (Retired section header) | Removes all retired devices and their Paperless documents in one operation |
+
+Retired devices are excluded from category fetch-all operations and do not appear in their original category while retired.
 
 ---
 
