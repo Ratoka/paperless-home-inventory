@@ -629,6 +629,17 @@ async def retire_device(request: Request, device_id: str):
     return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
 
 
+@app.post("/devices/{device_id}/reinstate", response_class=HTMLResponse)
+async def reinstate_device(request: Request, device_id: str):
+    data = load_data()
+    for d in (data.get("devices") or []):
+        if d.get("id") == device_id:
+            d["status"] = "active"
+            break
+    save_data(data)
+    return templates.TemplateResponse(request, "_device_list.html", _tmpl_ctx(request))
+
+
 @app.post("/devices/retired/delete-all", response_class=HTMLResponse)
 async def delete_all_retired(request: Request):
     from paperless_api import PaperlessClient, paperless_available
