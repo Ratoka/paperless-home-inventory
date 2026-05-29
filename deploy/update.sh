@@ -1,13 +1,14 @@
 #!/bin/bash
-# update.sh — Run on TrueNAS to pull the latest inventory-manager from GitHub
-# and restart or rebuild the container depending on what changed.
+# update.sh — Pull the latest inventory-manager from GitHub and restart or
+# rebuild the container depending on what changed.
 #
-# First run: converts an existing rsynced app dir to git-managed, or clones fresh.
-# Subsequent runs: git pull + restart/rebuild as needed.
+# Deployed to /usr/local/bin/update-inventory-manager by sync-inventory-manager.sh,
+# which substitutes the placeholder paths below with real values.
 set -euo pipefail
 
 # ── Edit these to match your TrueNAS paths ──────────────────────────────────
 APP_DIR="/mnt/your-pool/apps/inventory-manager"
+DATA_DIR="/mnt/your-pool/data/inventory"
 STACK_DIR="/mnt/.ix-apps/app_mounts/dockge/stacks/inventory-manager"
 REPO="https://github.com/Ratoka/paperless-home-inventory.git"
 
@@ -41,9 +42,12 @@ req_after=$(sha256sum "$APP_DIR/requirements.txt" | awk '{print $1}')
 # ── Update Dockge stack files ────────────────────────────────────────────────
 echo "Updating Dockge stack files..."
 mkdir -p "$STACK_DIR"
-cp "$APP_DIR/compose.yaml"    "$STACK_DIR/"
-cp "$APP_DIR/Dockerfile"      "$STACK_DIR/"
+cp "$APP_DIR/Dockerfile"       "$STACK_DIR/"
 cp "$APP_DIR/requirements.txt" "$STACK_DIR/"
+sed \
+  -e "s|/path/to/apps/inventory-manager|${APP_DIR}|g" \
+  -e "s|/path/to/data/inventory|${DATA_DIR}|g" \
+  "$APP_DIR/deploy/compose.yaml" > "$STACK_DIR/compose.yaml"
 
 # ── Restart or rebuild ───────────────────────────────────────────────────────
 cd "$STACK_DIR"
