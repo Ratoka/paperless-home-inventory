@@ -693,10 +693,8 @@ async def check_duplicate(name: str = "", model: str = ""):
         return HTMLResponse("")
 
     devices  = load_devices()
-    name_l   = name.lower()
-    model_l  = model.lower()
-    # Meaningful words (>2 chars) for name comparison
-    q_words  = {w for w in name_l.split() if len(w) > 2}
+    name_l  = name.lower()
+    model_l = model.lower()
 
     matches: list[dict] = []
     for d in devices:
@@ -704,13 +702,15 @@ async def check_duplicate(name: str = "", model: str = ""):
         d_model = (d.get("model") or "").lower()
         reasons: list[str] = []
 
-        if q_words and d_name:
-            d_words = {w for w in d_name.split() if len(w) > 2}
-            overlap = q_words & d_words
-            if len(overlap) >= 2 or any(len(w) >= 5 for w in overlap):
-                reasons.append("similar name")
+        name_exact    = bool(name_l  and d_name  and name_l  == d_name)
+        model_exact   = bool(model_l and d_model and model_l == d_model)
+        model_similar = bool(model_l and d_model and (model_l in d_model or d_model in model_l))
 
-        if model_l and d_model and model_l == d_model:
+        if name_exact and model_similar:
+            reasons.append("exact name + similar model")
+        elif name_exact and not model_l:
+            reasons.append("exact name match")
+        elif model_exact:
             reasons.append("same model number")
 
         if reasons:

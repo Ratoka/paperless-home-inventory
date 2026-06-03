@@ -213,10 +213,12 @@ function onPrimaryChange() {
     <div class="card-body py-2">
       <div class="mb-2">
         <label class="form-label small mb-1">Search hint</label>
-        <input id="manual-hint" name="manual_hint" class="form-control form-control-sm"
-               placeholder="e.g. Samsung QN85QN90 user manual PDF"
-               value="{{ d.get('manual_hint') or _auto_hint }}"
-               data-auto="{{ _auto_hint }}">
+        <div class="input-group input-group-sm">
+          <input id="manual-hint" name="manual_hint" class="form-control"
+                 placeholder="e.g. Samsung QN85QN90 user manual PDF"
+                 value="{{ d.get('manual_hint') or _auto_hint }}">
+          <button type="button" class="btn btn-outline-secondary" onclick="generateHint()">Generate</button>
+        </div>
       </div>
       <div>
         <label class="form-label small mb-1 text-muted">Manual Link — PDF or web page (skips search)</label>
@@ -301,37 +303,14 @@ function addExtraDoc(label, url) {
 addExtraDoc({{ doc.label | tojson }}, {{ doc.url | tojson }});
 {% endfor %}
 
-// ── Search hint auto-sync ──────────────────────────────────────────────────
-(function () {
-  const hintEl = document.getElementById('manual-hint');
-  if (!hintEl) return;
-
-  function buildHint() {
-    const mfr = (document.getElementById('manufacturer')?.value || '').trim();
-    const mdl = (document.getElementById('model')?.value || '').trim();
-    if (!mfr) return '';
-    return [mfr, mdl, 'user manual PDF'].filter(Boolean).join(' ');
-  }
-
-  function syncHint() {
-    const current = hintEl.value.trim();
-    const lastAuto = hintEl.dataset.auto || '';
-    // Only update when the field is empty or still shows the last auto value
-    if (!current || current === lastAuto) {
-      const next = buildHint();
-      hintEl.value = next;
-      hintEl.dataset.auto = next;
-    }
-  }
-
-  document.getElementById('manufacturer')?.addEventListener('input', syncHint);
-  document.getElementById('manufacturer')?.addEventListener('change', syncHint);
-  document.getElementById('model')?.addEventListener('input', syncHint);
-  document.getElementById('model')?.addEventListener('change', syncHint);
-
-  // Seed on load (covers add mode where fields are pre-typed before opening docs)
-  syncHint();
-})();
+// ── Search hint generator ──────────────────────────────────────────────────
+function generateHint() {
+  const name = (document.getElementById('name')?.value || '').trim();
+  const mfr  = (document.getElementById('manufacturer')?.value || '').trim();
+  const mdl  = (document.getElementById('model')?.value || '').trim();
+  const parts = [mfr || name, mdl, 'user manual PDF'].filter(Boolean);
+  if (parts.length) document.getElementById('manual-hint').value = parts.join(' ');
+}
 
 // ── Duplicate warning gate ─────────────────────────────────────────────────
 function _checkDupWarning() {
