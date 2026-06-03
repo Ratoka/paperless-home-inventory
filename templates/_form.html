@@ -80,7 +80,11 @@ function onPrimaryChange() {
     <div class="col">
       <label class="form-label fw-semibold">Manufacturer <span class="text-danger">*</span></label>
       <input id="manufacturer" name="manufacturer" class="form-control" required
-             placeholder="Samsung" value="{{ d.get('manufacturer','') }}">
+             placeholder="Samsung" value="{{ d.get('manufacturer','') }}"
+             list="manufacturer-options" autocomplete="off">
+      <datalist id="manufacturer-options">
+        {% for m in manufacturers %}<option value="{{ m }}">{% endfor %}
+      </datalist>
     </div>
     <div class="col">
       <label class="form-label fw-semibold">Model</label>
@@ -321,7 +325,9 @@ addExtraDoc({{ doc.label | tojson }}, {{ doc.url | tojson }});
   }
 
   document.getElementById('manufacturer')?.addEventListener('input', syncHint);
+  document.getElementById('manufacturer')?.addEventListener('change', syncHint);
   document.getElementById('model')?.addEventListener('input', syncHint);
+  document.getElementById('model')?.addEventListener('change', syncHint);
 
   // Seed on load (covers add mode where fields are pre-typed before opening docs)
   syncHint();

@@ -476,6 +476,7 @@ def _form_ctx(request: Request, device: dict, edit_id: str | None) -> dict:
         "integrations": INTEGRATIONS,
         "statuses": STATUSES,
         "extra_docs": extra_docs,
+        "manufacturers": sorted(m["name"] for m in _load_manufacturers()),
     }
 
 
